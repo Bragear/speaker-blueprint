@@ -393,8 +393,8 @@ let stamping = false;
 function restamp() {
   if (stamping || !parts.length) return;
   stamping = true;
-  const next = Object.keys(STYLES).filter((l) => l !== current);
-  const letter = next[Math.floor(Math.random() * next.length)];
+  const order = Object.keys(STYLES);
+  const letter = order[(order.indexOf(current) + 1) % order.length];
   revCell.classList.remove('hit'); void revCell.offsetWidth; revCell.classList.add('hit');
   flash.classList.remove('go'); void flash.offsetWidth; flash.classList.add('go');
   setTimeout(() => applyStyle(letter), 140);
