@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-style="blueprint">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -7,7 +7,7 @@
 <meta name="description" content="A two-way speaker, taken apart as you scroll.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Stencil+Display:wght@700;900&family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Stencil+Display:wght@700;900&family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&family=Archivo:wght@400;500;600&family=Archivo+Black&family=Bangers&family=Courier+Prime:wght@400;700&family=Press+Start+2P&display=swap" rel="stylesheet">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230d3777'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%23eef3ff' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='3' fill='%23ff5a3c'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 <script type="importmap">
@@ -25,7 +25,12 @@
   <div class="corner tl">A</div><div class="corner tr">1</div><div class="corner bl">2</div><div class="corner br">B</div>
 </div>
 
+<div class="halftone" aria-hidden="true"></div>
+<div class="scan" aria-hidden="true"></div>
 <canvas id="stage"></canvas>
+<div class="crosshair" id="crosshair" aria-hidden="true"><i class="ch-v"></i><i class="ch-h"></i></div>
+<p class="readout" id="readout" aria-hidden="true">X 0000 · Y 0000</p>
+<div class="flash" id="flash" aria-hidden="true"></div>
 <svg id="leaders" aria-hidden="true"></svg>
 <div id="labels"></div>
 
@@ -52,12 +57,12 @@
 
 <p class="hint" id="hint">DRAG TO ROTATE · TAP A PART</p>
 
-<footer class="titleblock" aria-hidden="true">
+<footer class="titleblock">
   <div class="tb-row"><span>TITLE</span><strong>HULL MK I · TWO-WAY MONITOR</strong></div>
   <div class="tb-grid">
     <div><span>SHEET</span><strong>1 OF 1</strong></div>
     <div><span>SCALE</span><strong>1 : 2</strong></div>
-    <div><span>REV</span><strong>A</strong></div>
+    <div class="rev" id="rev" title="Stamp a new style"><span>REV</span><strong><b id="rev-letter">A</b> <i id="rev-name">BLUEPRINT</i></strong></div>
     <div><span>DRAWN</span><strong>B. ARNTZEN</strong></div>
     <div><span>DATE</span><strong>29.10.2026</strong></div>
     <div><span>PARTS</span><strong id="tb-parts">0 / 8</strong></div>
