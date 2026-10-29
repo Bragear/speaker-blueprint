@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { makeProj, finalizeFrame, radiusScale, resolvePreset } from 'thinking-orbs/engine';
 
 // ---- parts: Blender object names, explode direction (glTF space: +Z = front) and copy
 const PARTS = [
@@ -293,6 +294,7 @@ function placeLabels() {
   v.set(0, 0, 0).project(camera); // the drawing's centre on screen (the model is centred on the origin)
   const cx = (v.x * 0.5 + 0.5) * w, cy = (-v.y * 0.5 + 0.5) * h;
   const bomBox = w >= 900 ? bom.getBoundingClientRect() : null;
+  const pBox = player.getBoundingClientRect(), ext = mobile ? 24 : 170;
   let shown = 0;
   parts.forEach((p, i) => {
     if (!p.el) return;
@@ -313,6 +315,7 @@ function placeLabels() {
     let ly = THREE.MathUtils.clamp(y + uy * L, 48, h - 40);
     if (ly > tbTop && lx > tbLeft) ly = tbTop;
     if (bomBox && lx + (ux >= 0 ? 170 : 0) > bomBox.left - 10 && ly < bomBox.bottom + 30) ly = bomBox.bottom + 30;
+    if (lx + (ux >= 0 ? ext : 0) > pBox.left - 10 && lx - (ux < 0 ? ext : 0) < pBox.right + 10 && ly < pBox.bottom + 30) ly = pBox.bottom + 30;
     p.el.classList.toggle('flip', ux < 0);
     p.el.style.left = lx + 'px'; p.el.style.top = ly + 'px';
     p.line.setAttribute('x1', x); p.line.setAttribute('y1', y);
@@ -431,6 +434,7 @@ function applyStyle(letter) {
   current = letter;
   const studio = letter === 'B', zine = letter === 'C', arcade = letter === 'D';
   document.documentElement.dataset.style = STYLES[letter].key;
+  orbTheme();
   revLetter.textContent = letter; revName.textContent = STYLES[letter].name;
   scene.environment = studio ? env() : null;
   floor.visible = studio;
@@ -496,6 +500,7 @@ function frame(now) {
   hint.classList.toggle('show', eased > 0.03 && !selected);
   for (const m of hiddenMats) { m.dashSize = fitD * 0.0075; m.gapSize = fitD * 0.0045; }
   stickerShadow.uniforms.uOffset.value.set(2 * 12 / window.innerWidth, -2 * 14 / window.innerHeight);
+  drawOrb(now, dt);
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }
@@ -508,4 +513,149 @@ window.addEventListener('resize', () => {
 });
 readScroll();
 
-window.__dbg = { scene, camera, parts, rig, renderer, applyStyle, restamp, get eased() { return eased; }, get progress() { return progress; } };
+
+// ---- music-reactive orb: the Thinking Orbs engine's dot language (MIT, Jakub Antalik), with a custom frame fed by the analyser
+const orbCanvas = document.getElementById('orb'), orbCtx = orbCanvas.getContext('2d');
+const player = document.getElementById('player'), playBtn = document.getElementById('play'), playLabel = document.getElementById('play-label');
+const track = document.getElementById('track');
+const listening = resolvePreset('listening', 64).opts; // the library's tuned "listening" profile, densified for a bigger orb
+const orbOpts = { ...listening, rings: 14, lonDensity: 36, rBase: (listening.rBase ?? 0.6) * 1.6, rDepth: (listening.rDepth ?? 1.7) * 1.6 };
+const music = { bass: 0, mids: 0, highs: 0, vol: 0, beat: 0, spin: 0 };
+const lo = { bass: 0, mids: 0, highs: 0, vol: 0 }, hi = { bass: 60, mids: 40, highs: 25, vol: 40 }; // each band's running range, so any track normalises itself
+let actx = null, analyser = null, freq = null, playing = false, bassAvg = 0, bassDev = 8, bassPrev = 0, lastBeat = 0;
+let orbInk = [238, 243, 255], orbPaper = [13, 55, 119];
+
+function parseColor(s) {
+  s = s.trim();
+  let m = s.match(/^#([0-9a-f]{3})$/i);
+  if (m) return [...m[1]].map((c) => parseInt(c + c, 16));
+  m = s.match(/^#([0-9a-f]{6})$/i);
+  if (m) { const n = parseInt(m[1], 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+  m = s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i);
+  return m ? [+m[1], +m[2], +m[3]] : [128, 128, 128];
+}
+function orbTheme() { // the orb is always drawn in the sheet's ink, fading toward its paper
+  const cs = getComputedStyle(document.documentElement);
+  orbInk = parseColor(cs.getPropertyValue('--ink')); orbPaper = parseColor(cs.getPropertyValue('--paper'));
+}
+const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+const mixC = (a, b, f) => [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+// the engine's own noise helpers, copied because the React-free entry does not export them
+function hashD(a, b) { const h = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453; return h - Math.floor(h); }
+function vnoise(x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y); let fx = x - xi, fy = y - yi;
+  fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
+  const a = hashD(xi, yi), b = hashD(xi + 1, yi), c = hashD(xi, yi + 1), d = hashD(xi + 1, yi + 1);
+  return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy;
+}
+
+// -- audio: an AnalyserNode on the audio element, created on the first Play (autoplay rules)
+function ensureAudio() {
+  if (actx) return;
+  actx = new (window.AudioContext || window.webkitAudioContext)();
+  const src = actx.createMediaElementSource(track);
+  analyser = actx.createAnalyser(); analyser.fftSize = 1024; analyser.smoothingTimeConstant = 0.3;
+  src.connect(analyser); analyser.connect(actx.destination);
+  freq = new Uint8Array(analyser.frequencyBinCount);
+}
+function setPlaying(on) {
+  playing = on;
+  playBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  playBtn.setAttribute('aria-label', on ? 'Pause music' : 'Play music');
+  playLabel.textContent = on ? 'Pause' : 'Play';
+}
+function noTrack() { playLabel.textContent = 'No track'; playBtn.disabled = true; setPlaying(false); }
+playBtn.addEventListener('click', async () => {
+  if (playing) { track.pause(); setPlaying(false); return; }
+  try {
+    ensureAudio();
+    if (actx.state !== 'running') await actx.resume();
+    await track.play();
+    setPlaying(true);
+  } catch (err) { console.warn('music: could not start', err); noTrack(); }
+});
+track.addEventListener('play', () => setPlaying(true));   // keep the button honest when the OS media keys drive it
+track.addEventListener('pause', () => setPlaying(false));
+track.querySelector('source:last-child').addEventListener('error', noTrack); // every source failed to load
+
+function band(lo, hi) { let s = 0; for (let i = lo; i < hi; i++) s += freq[i]; return s / Math.max(1, hi - lo); }
+function range(key, v, floor) { // where v sits between the band's recent quietest and loudest
+  lo[key] = v < lo[key] ? v : lo[key] + (v - lo[key]) * 0.004;
+  hi[key] = v > hi[key] ? v : hi[key] + (v - hi[key]) * 0.002;
+  return Math.min(1, Math.max(0, (v - lo[key]) / Math.max(floor, hi[key] - lo[key])));
+}
+function ease(k, target, dt, attack, release) { music[k] += (target - music[k]) * Math.min(1, dt * (target > music[k] ? attack : release)); }
+function analyse(now, dt) {
+  analyser.getByteFrequencyData(freq);
+  const hz = actx.sampleRate / analyser.fftSize, bin = (f) => Math.min(freq.length - 1, Math.round(f / hz));
+  const bass = band(bin(20), bin(150) + 1), mids = band(bin(150), bin(2000)), highs = band(bin(2000), bin(10000)), vol = band(0, bin(10000));
+  // a beat: the bass rises clear of its recent average, by more than its usual wander
+  bassAvg += (bass - bassAvg) * Math.min(1, dt * 2.5);
+  bassDev += (Math.abs(bass - bassAvg) - bassDev) * Math.min(1, dt * 2.5);
+  if (bass > bassPrev && bass - bassAvg > Math.max(6, 1.3 * bassDev) && bass > 60 && now - lastBeat > 180) { music.beat = 1; lastBeat = now; }
+  bassPrev = bass;
+  ease('bass', range('bass', bass, 30), dt, 20, 6);
+  ease('mids', range('mids', mids, 20), dt, 14, 5);
+  ease('highs', range('highs', highs, 12), dt, 18, 7);
+  ease('vol', range('vol', vol, 20), dt, 8, 3);
+}
+
+// -- geometry, in the engine's own contract: (size, t, opts) -> frame of dots
+function orbFrame(size, t, o, m) {
+  const cx = size / 2, cy = size / 2;
+  const breathe = 1 + 0.03 * Math.sin(t * 0.7);                         // idle: slow breathing
+  const R = size / 2 * 0.74 * breathe * (1 + 0.10 * m.bass + 0.07 * m.beat); // bass: scale, with a pulse on the beat
+  const pt = makeProj(t * 0.18 + m.spin, 0.38 + 0.06 * Math.sin(t * 0.3), cx, cy, 1);
+  const rs = radiusScale(size, o.rsPow ?? 0.6);
+  const rings = o.rings ?? 15, lonDensity = o.lonDensity ?? 40;
+  const wobble = 0.04 + 0.14 * m.mids, boil = 0.12 * m.mids;           // mids: the rolling wave and the surface boil
+  const bright = 0.55 + 0.45 * m.vol;                                   // volume: brightness
+  const sparkGate = 1 - 0.12 * m.highs, tick = Math.floor(t * 14);      // highs: a share of dots sparkle
+  const dots = [];
+  for (let ri = 0; ri <= rings; ri++) {
+    const lat = -Math.PI / 2 + ri / rings * Math.PI, cosLat = Math.cos(lat), sinLat = Math.sin(lat);
+    const w = 0.62 * Math.sin(t * 2.1 - ri * 0.52) + 0.38 * Math.sin(t * 1.27 + ri * 0.83); // the library's listening wave
+    const crest = Math.max(0, w);
+    const lonCount = Math.max(1, Math.round(Math.abs(cosLat) * lonDensity));
+    for (let lj = 0; lj < lonCount; lj++) {
+      const lon = lj / lonCount * 2 * Math.PI;
+      const n = (vnoise(lon * 1.2 + t * 0.5, ri * 0.8 + t * 0.35) - 0.5) * 2;
+      const rr = R * (0.9 + wobble * w) * (1 + boil * n);
+      const [px, py, z] = pt(cosLat * Math.cos(lon) * rr, sinLat * rr, cosLat * Math.sin(lon) * rr);
+      const depth = (z / R + 1) / 2;
+      const spark = m.highs > 0.02 && hashD(ri * 7.1 + lj, tick) > sparkGate ? 1 : 0;
+      dots.push({
+        x: px, y: py, z,
+        r: ((o.rBase ?? 0.6) + (o.rDepth ?? 1.7) * depth) * (1 + 0.4 * crest + 0.9 * spark * m.highs) * rs,
+        white: Math.max(0, 0.66 - 0.56 * depth - 0.1 * crest - 0.25 * spark - 0.12 * m.vol),
+        a: Math.min(1, bright * (0.45 + 0.55 * depth) + 0.4 * spark),
+      });
+    }
+  }
+  return finalizeFrame(dots, [], o.rMin);
+}
+function drawOrb(now, dt) {
+  const size = orbCanvas.clientWidth;
+  if (!size) return;
+  const dpr = current === 'D' ? 0.25 : Math.min(2, window.devicePixelRatio || 1);
+  const px = Math.max(1, Math.round(size * dpr));
+  if (orbCanvas.width !== px) orbCanvas.width = orbCanvas.height = px;
+  if (playing && analyser) analyse(now, dt);
+  else for (const k of ['bass', 'mids', 'highs', 'vol']) ease(k, 0, dt, 20, 1.5); // paused: settle back to idle
+  music.beat *= Math.exp(-dt * 5);
+  music.spin += dt * (0.9 * music.vol + 0.6 * music.bass);                      // louder = turns faster
+  const frame = orbFrame(size, now / 1000, orbOpts, music);
+  orbCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  orbCtx.clearRect(0, 0, size, size);
+  const glow = 0.04 + 0.3 * (0.5 * music.highs + 0.3 * music.vol + 0.2 * music.beat);  // a soft halo behind the dots
+  const halo = orbCtx.createRadialGradient(size / 2, size / 2, size * 0.08, size / 2, size / 2, size * 0.5);
+  halo.addColorStop(0, rgba(orbInk, glow)); halo.addColorStop(1, rgba(orbInk, 0));
+  orbCtx.fillStyle = halo; orbCtx.fillRect(0, 0, size, size);
+  for (const d of frame.dots) {
+    orbCtx.fillStyle = rgba(mixC(orbInk, orbPaper, Math.min(1, d.white)), d.a ?? 1);
+    orbCtx.beginPath(); orbCtx.arc(d.x, d.y, d.r, 0, Math.PI * 2); orbCtx.fill();
+  }
+}
+orbTheme();
+
+window.__dbg = { scene, camera, parts, rig, renderer, applyStyle, restamp, music, orbFrame, get playing() { return playing; }, get eased() { return eased; }, get progress() { return progress; } };

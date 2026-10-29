@@ -297,3 +297,35 @@ html[data-style="arcade"] #dims line { stroke: #0f380f; stroke-width: 2; }
 html[data-style="arcade"] #dims text { font-size: 8px; letter-spacing: 0; }
 html[data-style="arcade"] .flash { background: #0f380f; }
 html[data-style="arcade"] .bom-row > span:nth-child(3) { font-size: 7px; }
+
+/* ---- player: the music-reactive orb (Thinking Orbs dot language) and the Play button */
+.player {
+  position: fixed; z-index: 6; top: calc(var(--inset) + 22px); right: calc(var(--inset) + 22px + 330px + 28px);
+  display: flex; flex-direction: row-reverse; align-items: center; gap: 14px; /* the button sits to the left of the orb, clear of the title */
+  animation: fade 0.8s ease 0.3s both;
+}
+.orb { display: block; width: 140px; height: 140px; }
+.play {
+  display: inline-flex; align-items: center; gap: 9px; padding: 8px 13px 8px 11px;
+  border: 1px solid var(--ink-soft); background: var(--panel); color: var(--ink);
+  font: 500 10px/1 var(--mono); letter-spacing: 0.25em; text-transform: uppercase; cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.play svg { width: 10px; height: 10px; fill: currentColor; }
+.play .ic-pause { display: none; }
+.play:hover { border-color: var(--ink); }
+.play:focus-visible { outline: 2px solid var(--pencil); outline-offset: 3px; }
+.play[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.play[aria-pressed="true"] .ic-play { display: none; }
+.play[aria-pressed="true"] .ic-pause { display: block; }
+.play[disabled] { opacity: 0.5; cursor: default; }
+@media (max-width: 900px) { .player { right: calc(var(--inset) + 22px); } .orb { width: 96px; height: 96px; } }
+@media (max-width: 640px) {
+  .player { top: calc(var(--inset) + 12px); right: calc(var(--inset) + 12px); gap: 10px; }
+  .orb { width: 84px; height: 84px; }
+  .play { padding: 7px 10px 7px 9px; font-size: 9px; }
+}
+html[data-style="zine"] .play { border: 2px solid #111; box-shadow: 3px 3px 0 #111; font-weight: 700; }
+html[data-style="zine"] .play[aria-pressed="true"] { background: #ff2e88; color: #111; }
+html[data-style="arcade"] .play { border: 3px solid var(--ink); font-size: 8px; letter-spacing: 0.05em; }
+html[data-style="arcade"] .orb { image-rendering: pixelated; }

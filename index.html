@@ -12,6 +12,7 @@
 <link rel="stylesheet" href="style.css">
 <script type="importmap">
 { "imports": {
+    "thinking-orbs/engine": "https://cdn.jsdelivr.net/npm/thinking-orbs@0.3.2/dist/engine.es.js",
   "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
   "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
 } }
@@ -51,6 +52,18 @@
   <p class="detail-fact" id="detail-fact"></p>
 </aside>
 
+<div class="player" id="player">
+  <canvas class="orb" id="orb" aria-hidden="true"></canvas>
+  <button class="play" id="play" type="button" aria-pressed="false" aria-label="Play music">
+    <svg class="ic-play" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 1.5v9l8-4.5z"/></svg>
+    <svg class="ic-pause" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 1.5h3v9H2zM7 1.5h3v9H7z"/></svg>
+    <span class="play-label" id="play-label">Play</span>
+  </button>
+  <audio id="track" preload="none" loop>
+    <source src="audio/track.mp3" type="audio/mpeg">
+    <source src="audio/track.wav" type="audio/wav">
+  </audio>
+</div>
 <aside class="bom" id="bom" aria-hidden="true">
   <div class="bom-head"><span>NO</span><span>PART</span><span>MATERIAL</span><span>QTY</span></div>
 </aside>
