@@ -120,8 +120,19 @@ const hullShader = { // zine: thick ink outline, drawn as an inflated back-facin
   vertexShader: `uniform float uWidth; void main(){ vec3 p = position + normal * uWidth; gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0); }`,
   fragmentShader: `uniform vec3 uColor; void main(){ gl_FragColor = vec4(uColor, 1.0); }`,
 };
+const haloShader = { // zine: the white die-cut border, a fatter shell behind the ink one
+  side: THREE.BackSide,
+  uniforms: { uColor: { value: new THREE.Color('#ffffff') }, uWidth: { value: 0.013 } },
+  vertexShader: hullShader.vertexShader, fragmentShader: hullShader.fragmentShader,
+};
+const stickerShadow = new THREE.ShaderMaterial({ // zine: the die-cut shape shifted on screen and drawn under everything, as a hard shadow
+  side: THREE.DoubleSide, depthTest: false, depthWrite: false,
+  uniforms: { uColor: { value: new THREE.Color('#111111') }, uWidth: { value: 0.013 }, uOffset: { value: new THREE.Vector2(0, 0) } },
+  vertexShader: `uniform float uWidth; uniform vec2 uOffset; void main(){ vec3 p = position + normal * uWidth; vec4 c = projectionMatrix * modelViewMatrix * vec4(p, 1.0); c.xy += uOffset * c.w; gl_Position = c; }`,
+  fragmentShader: `uniform vec3 uColor; void main(){ gl_FragColor = vec4(uColor, 1.0); }`,
+});
 
-const parts = []; // { cfg, obj, mesh, base, edges, hidden, depth, hull, dir, mats, r, lift }
+const parts = []; // { cfg, obj, mesh, base, edges, hidden, depth, hull, halo, shadow, dir, mats, r, lift }
 
 const loader = new GLTFLoader();
 loader.load('model/speaker.glb', (gltf) => {
@@ -150,6 +161,12 @@ loader.load('model/speaker.glb', (gltf) => {
     const hull = new THREE.Mesh(smooth, new THREE.ShaderMaterial({ ...hullShader, uniforms: THREE.UniformsUtils.clone(hullShader.uniforms) }));
     hull.visible = false; hull.renderOrder = 0;
     o.add(hull);
+    const halo = new THREE.Mesh(smooth, new THREE.ShaderMaterial({ ...haloShader, uniforms: THREE.UniformsUtils.clone(haloShader.uniforms) }));
+    halo.visible = false; halo.renderOrder = 0;
+    o.add(halo);
+    const shadow = new THREE.Mesh(smooth, stickerShadow);
+    shadow.visible = false; shadow.renderOrder = -2;
+    o.add(shadow);
     o.geometry.computeBoundingSphere();
     const [sc, rough, metal] = STUDIO[cfg.name];
     const mats = {
@@ -159,7 +176,7 @@ loader.load('model/speaker.glb', (gltf) => {
       D: new THREE.MeshToonMaterial({ color: ARCADE[cfg.name], gradientMap: toon2 }),
     };
     const dir = new THREE.Vector3(...cfg.dir);
-    parts.push({ cfg, obj: target, mesh: o, base: target.position.clone(), edges, hidden, depth, hull, dir, mats, r: o.geometry.boundingSphere.radius, lift: 0,
+    parts.push({ cfg, obj: target, mesh: o, base: target.position.clone(), edges, hidden, depth, hull, halo, shadow, dir, mats, r: o.geometry.boundingSphere.radius, lift: 0,
       liftDir: dir.length() ? dir.clone().normalize() : new THREE.Vector3(0, 1, 0) });
   });
   parts.sort((a, b) => a.cfg.no - b.cfg.no);
@@ -377,7 +394,8 @@ function applyMats() {
     } else if (current === 'B') {
       const m = q.mats.B; m.emissive.set(state === 'active' ? '#ff5a3c' : '#ffffff'); m.emissiveIntensity = state === 'active' ? 0.5 : state === 'hover' ? 0.12 : 0;
     } else if (current === 'C') {
-      q.hull.material.uniforms.uColor.value.set(state === 'active' ? '#ff2e88' : state === 'hover' ? '#ffffff' : '#111111');
+      q.hull.material.uniforms.uColor.value.set(state === 'active' ? '#ff2e88' : '#111111');
+      q.halo.material.uniforms.uColor.value.set(state === 'hover' ? '#ff2e88' : '#ffffff');
     } else {
       q.mesh.material = state === 'active' ? arcadeActive : state === 'hover' ? arcadeHover : q.mats.D;
     }
@@ -423,6 +441,8 @@ function applyStyle(letter) {
   parts.forEach((p) => {
     p.mesh.material = p.mats[letter];
     p.hull.visible = zine;
+    p.halo.visible = zine;
+    p.shadow.visible = zine;
     p.hidden.visible = letter === 'A';
     p.depth.visible = letter === 'A';
     p.edges.visible = !studio;
@@ -475,6 +495,7 @@ function frame(now) {
     : (small ? 'DRAG TO SPIN · TAP A PART · TAP REV' : 'DRAG TO ROTATE · TAP A PART · PRESS R FOR A NEW STYLE');
   hint.classList.toggle('show', eased > 0.03 && !selected);
   for (const m of hiddenMats) { m.dashSize = fitD * 0.0075; m.gapSize = fitD * 0.0045; }
+  stickerShadow.uniforms.uOffset.value.set(2 * 12 / window.innerWidth, -2 * 14 / window.innerHeight);
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }
