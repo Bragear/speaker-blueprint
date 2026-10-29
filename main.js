@@ -496,7 +496,7 @@ function frame(now) {
   const small = window.innerWidth < 640;
   hint.textContent = eased > 0.97
     ? (small ? 'SCROLL UP · TAP REV FOR A NEW STYLE' : 'END OF SHEET · SCROLL UP TO REASSEMBLE · R FOR A NEW STYLE')
-    : (small ? 'DRAG TO SPIN · TAP A PART · TAP REV' : 'DRAG TO ROTATE · TAP A PART · PRESS R FOR A NEW STYLE');
+    : (small ? 'DRAG TO SPIN · TAP A PART · TAP REV' : 'DRAG TO ROTATE · TAP A PART · R FOR A NEW STYLE · SPACE TO PLAY');
   hint.classList.toggle('show', eased > 0.03 && !selected);
   for (const m of hiddenMats) { m.dashSize = fitD * 0.0075; m.gapSize = fitD * 0.0045; }
   stickerShadow.uniforms.uOffset.value.set(2 * 12 / window.innerWidth, -2 * 14 / window.innerHeight);
@@ -523,6 +523,8 @@ const orbOpts = { ...listening, rings: 14, lonDensity: 36, rBase: (listening.rBa
 const music = { bass: 0, mids: 0, highs: 0, vol: 0, beat: 0, spin: 0 };
 const lo = { bass: 0, mids: 0, highs: 0, vol: 0 }, hi = { bass: 60, mids: 40, highs: 25, vol: 40 }; // each band's running range, so any track normalises itself
 let actx = null, analyser = null, freq = null, playing = false, bassAvg = 0, bassDev = 8, bassPrev = 0, lastBeat = 0;
+const BEATS_PER_STYLE = 8, STYLE_FALLBACK_MS = 10000; // while playing, stamp the next style every 8 beats (or every 10 s if no beats are heard)
+let beatCount = 0, lastAutoStamp = 0;
 let orbInk = [238, 243, 255], orbPaper = [13, 55, 119];
 
 function parseColor(s) {
@@ -560,6 +562,7 @@ function ensureAudio() {
 }
 function setPlaying(on) {
   playing = on;
+  beatCount = 0; lastAutoStamp = performance.now();
   playBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
   playBtn.setAttribute('aria-label', on ? 'Pause music' : 'Play music');
   playLabel.textContent = on ? 'Pause' : 'Play';
@@ -573,6 +576,13 @@ playBtn.addEventListener('click', async () => {
     await track.play();
     setPlaying(true);
   } catch (err) { console.warn('music: could not start', err); noTrack(); }
+});
+window.addEventListener('keydown', (e) => {
+  if (e.code !== 'Space' || e.repeat) return;
+  const t = e.target;
+  if (t && (t.tagName === 'BUTTON' || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+  e.preventDefault(); // Space would otherwise scroll the sheet as well
+  playBtn.click();
 });
 track.addEventListener('play', () => setPlaying(true));   // keep the button honest when the OS media keys drive it
 track.addEventListener('pause', () => setPlaying(false));
@@ -592,7 +602,10 @@ function analyse(now, dt) {
   // a beat: the bass rises clear of its recent average, by more than its usual wander
   bassAvg += (bass - bassAvg) * Math.min(1, dt * 2.5);
   bassDev += (Math.abs(bass - bassAvg) - bassDev) * Math.min(1, dt * 2.5);
-  if (bass > bassPrev && bass - bassAvg > Math.max(6, 1.3 * bassDev) && bass > 60 && now - lastBeat > 180) { music.beat = 1; lastBeat = now; }
+  if (bass > bassPrev && bass - bassAvg > Math.max(6, 1.3 * bassDev) && bass > 60 && now - lastBeat > 280) { // 280 ms apart at most: kicks, not every bass note
+    music.beat = 1; lastBeat = now;
+    if (++beatCount >= BEATS_PER_STYLE) autoStamp(now);
+  }
   bassPrev = bass;
   ease('bass', range('bass', bass, 30), dt, 20, 6);
   ease('mids', range('mids', mids, 20), dt, 14, 5);
@@ -634,9 +647,11 @@ function orbFrame(size, t, o, m) {
   }
   return finalizeFrame(dots, [], o.rMin);
 }
+function autoStamp(now) { beatCount = 0; lastAutoStamp = now; restamp(); }
 function drawOrb(now, dt) {
   const size = orbCanvas.clientWidth;
   if (!size) return;
+  if (playing && now - lastAutoStamp > STYLE_FALLBACK_MS) autoStamp(now);
   const dpr = current === 'D' ? 0.25 : Math.min(2, window.devicePixelRatio || 1);
   const px = Math.max(1, Math.round(size * dpr));
   if (orbCanvas.width !== px) orbCanvas.width = orbCanvas.height = px;
