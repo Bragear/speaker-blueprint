@@ -65,7 +65,7 @@ body {
 /* part labels */
 #labels { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
 .label {
-  position: absolute; transform: translate(-50%, -50%);
+  position: absolute; transform: translate(-13px, -50%);
   display: flex; align-items: center; gap: 8px;
   opacity: 0; transition: opacity 0.35s ease;
   white-space: nowrap; pointer-events: auto; cursor: pointer;
@@ -79,7 +79,7 @@ body {
 .label .nm { font-size: 11px; letter-spacing: 0.14em; color: var(--ink-soft); }
 .label.active .no { border-color: var(--pencil); color: var(--pencil); }
 .label.active .nm { color: var(--pencil); }
-.label.flip { flex-direction: row-reverse; }
+.label.flip { flex-direction: row-reverse; transform: translate(calc(-100% + 13px), -50%); }
 @media (max-width: 640px) { .label .nm { display: none; } .label.active .nm { display: inline; } }
 
 /* opening */

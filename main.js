@@ -3,13 +3,13 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // ---- parts: Blender object names, explode direction (glTF space: +Z = front) and copy
 const PARTS = [
-  { name: 'grille',    no: 1, label: 'GRILLE',        dir: [0, 0, 1.0],     material: 'Cloth on MDF frame', dim: '180 × 300 × 12', fact: 'A frame of stretched cloth. It hides the drivers and does almost nothing to the sound.' },
-  { name: 'baffle',    no: 2, label: 'FRONT BAFFLE',  dir: [0, 0, 0.62],    material: 'MDF, 25 mm',        dim: '180 × 300 × 25', fact: 'The thick front plate that holds both drivers. Stiff, so it does not sing along with them.' },
-  { name: 'woofer',    no: 3, label: 'WOOFER Ø130',   dir: [0, -0.06, 0.38], material: 'Paper cone, steel', dim: 'Ø 130',           fact: 'Moves the air for bass and mids. The cone pumps back and forth up to a hundred times a second.' },
-  { name: 'tweeter',   no: 4, label: 'TWEETER Ø25',   dir: [0, 0.08, 0.38],  material: 'Silk dome',        dim: 'Ø 25',            fact: 'A tiny dome for the high notes, up to 20 000 Hz. Fast and light.' },
-  { name: 'port',      no: 5, label: 'BASS PORT',     dir: [0, 0, -0.5],    material: 'ABS tube',          dim: 'Ø 40 × 120',      fact: 'A tube tuned to one note. The air in it resonates and adds low bass the woofer cannot make alone.' },
-  { name: 'crossover', no: 6, label: 'CROSSOVER',     dir: [-0.55, -0.1, 0], material: 'PCB, coils, caps', dim: '90 × 60',         fact: 'A small circuit board that splits the signal: lows to the woofer, highs to the tweeter.' },
-  { name: 'terminal',  no: 7, label: 'TERMINAL CUP',  dir: [0, -0.05, -0.7], material: 'ABS, brass',       dim: '60 × 90',         fact: 'Where the speaker cable connects. Red and black, so you get the two speakers in step.' },
+  { name: 'grille',    no: 1, label: 'GRILLE',        dir: [0, 0, 0.42],     material: 'Cloth on MDF frame', dim: '180 × 300 × 12', fact: 'A frame of stretched cloth. It hides the drivers and does almost nothing to the sound.' },
+  { name: 'baffle',    no: 2, label: 'FRONT BAFFLE',  dir: [0, 0, 0.26],    material: 'MDF, 25 mm',        dim: '180 × 300 × 25', fact: 'The thick front plate that holds both drivers. Stiff, so it does not sing along with them.' },
+  { name: 'woofer',    no: 3, label: 'WOOFER Ø130',   dir: [0, -0.04, 0.14], material: 'Paper cone, steel', dim: 'Ø 130',           fact: 'Moves the air for bass and mids. The cone pumps back and forth up to a hundred times a second.' },
+  { name: 'tweeter',   no: 4, label: 'TWEETER Ø25',   dir: [0, 0.06, 0.14],  material: 'Silk dome',        dim: 'Ø 25',            fact: 'A tiny dome for the high notes, up to 20 000 Hz. Fast and light.' },
+  { name: 'port',      no: 5, label: 'BASS PORT',     dir: [0, 0.08, -0.22],    material: 'ABS tube',          dim: 'Ø 40 × 120',      fact: 'A tube tuned to one note. The air in it resonates and adds low bass the woofer cannot make alone.' },
+  { name: 'crossover', no: 6, label: 'CROSSOVER',     dir: [-0.2, -0.06, 0], material: 'PCB, coils, caps', dim: '90 × 60',         fact: 'A small circuit board that splits the signal: lows to the woofer, highs to the tweeter.' },
+  { name: 'terminal',  no: 7, label: 'TERMINAL CUP',  dir: [0, -0.04, -0.3], material: 'ABS, brass',       dim: '60 × 90',         fact: 'Where the speaker cable connects. Red and black, so you get the two speakers in step.' },
   { name: 'cabinet',   no: 8, label: 'CABINET',       dir: [0, 0, 0],       material: 'MDF, 18 mm',        dim: '180 × 300 × 240', fact: 'A sealed box of MDF. Its volume sets how deep the bass goes.' },
 ];
 const STEP = 1 / PARTS.length;
@@ -75,21 +75,40 @@ loader.load('model/speaker.glb', (gltf) => {
   });
   parts.sort((a, b) => a.cfg.no - b.cfg.no);
   // centre the model and size the camera
-  const box = new THREE.Box3().setFromObject(root);
-  const c = box.getCenter(new THREE.Vector3());
-  root.position.sub(c);
-  const r = box.getSize(new THREE.Vector3()).length() / 2;
-  dist0 = r * 2.9; dist1 = r * 5.2;
+  parts.forEach((p) => {
+    const m = p.obj.isMesh ? p.obj : p.obj.children.find((c) => c.isMesh);
+    m.geometry.computeBoundingSphere();
+    p.r = m.geometry.boundingSphere.radius;
+  });
+  modelRoot = root;
   buildLabels();
-  fitCamera();
 });
 
-let dist0 = 1, dist1 = 2;
-function fitCamera() {
-  const portrait = window.innerWidth < window.innerHeight;
-  const k = portrait ? 1.35 : 1;
-  const d = THREE.MathUtils.lerp(dist0, dist1, eased) * k;
-  camera.position.set(0, d * 0.18, d);
+// keep whatever is exploded centred and in frame
+let modelRoot = null, fitD = 1;
+const bb = new THREE.Box3(), bc = new THREE.Vector3(), fitTarget = new THREE.Vector3();
+function fitCamera(dt) {
+  if (modelRoot && parts.length) {
+    rig.updateMatrixWorld();
+    bb.makeEmpty();
+    parts.forEach((p) => { p.obj.getWorldPosition(v); bb.expandByPoint(v); });
+    bb.getCenter(bc);
+    rig.worldToLocal(bc);
+    fitTarget.copy(modelRoot.position).sub(bc);
+    modelRoot.position.lerp(fitTarget, Math.min(1, dt * 5));
+    // how much of the viewport the parts take up at the current distance
+    const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+    let extent = 0;
+    parts.forEach((p) => {
+      p.obj.getWorldPosition(v);
+      const ry = p.r / (v.distanceTo(camera.position) * tanV), rx = ry / camera.aspect;
+      v.project(camera);
+      extent = Math.max(extent, Math.abs(v.x) + rx, Math.abs(v.y) + ry);
+    });
+    const want = THREE.MathUtils.lerp(0.42, 0.78, THREE.MathUtils.smoothstep(eased, 0, 0.15));
+    fitD += (fitD * (extent / want) - fitD) * Math.min(1, dt * 4);
+  }
+  camera.position.set(0, fitD * 0.22, fitD);
   camera.lookAt(0, 0, 0);
 }
 
@@ -112,7 +131,7 @@ function partT(i, p) {
 }
 
 // ---- rotation: drag horizontally to spin, idle auto-turn
-let rotY = 0.5, rotX = 0.08, velY = 0, dragging = false, lastX = 0, lastY = 0, moved = 0, idleSince = 0;
+let rotY = 0.35, rotX = 0.12, velY = 0, dragging = false, lastX = 0, lastY = 0, moved = 0, idleSince = 0;
 canvas.addEventListener('pointerdown', (e) => { dragging = true; moved = 0; lastX = e.clientX; lastY = e.clientY; velY = 0; canvas.setPointerCapture(e.pointerId); });
 canvas.addEventListener('pointermove', (e) => {
   if (!dragging) return;
@@ -133,7 +152,7 @@ const NS = 'http://www.w3.org/2000/svg';
 function buildLabels() {
   parts.forEach((p, i) => {
     const el = document.createElement('div');
-    el.className = 'label' + (i % 2 ? ' flip' : '');
+    el.className = 'label';
     el.innerHTML = `<span class="no">${p.cfg.no}</span><span class="nm">${p.cfg.label}</span>`;
     el.addEventListener('click', () => select(p));
     labelsEl.appendChild(el);
@@ -147,6 +166,7 @@ function buildLabels() {
 const v = new THREE.Vector3();
 function placeLabels() {
   const w = window.innerWidth, h = window.innerHeight, mobile = w < 640;
+  const cx = w / 2, cy = h / 2, L = mobile ? 64 : 136;
   let shown = 0;
   parts.forEach((p, i) => {
     if (!p.el) return;
@@ -157,11 +177,15 @@ function placeLabels() {
     shown++;
     p.obj.getWorldPosition(v); v.project(camera);
     const x = (v.x * 0.5 + 0.5) * w, y = (-v.y * 0.5 + 0.5) * h;
-    const side = i % 2 ? -1 : 1;
-    const lx = x + side * (mobile ? 54 : 120), ly = y - (mobile ? 26 : 34);
+    // push each label outward from the middle of the drawing, like a parts diagram
+    let ux = x - cx, uy = y - cy;
+    const len = Math.hypot(ux, uy);
+    if (len < 24) { ux = 0; uy = -1; } else { ux /= len; uy /= len; }
+    const lx = x + ux * L, ly = y + uy * L;
+    p.el.classList.toggle('flip', ux < 0);
     p.el.style.left = lx + 'px'; p.el.style.top = ly + 'px';
     p.line.setAttribute('x1', x); p.line.setAttribute('y1', y);
-    p.line.setAttribute('x2', lx - side * (mobile ? 13 : 13)); p.line.setAttribute('y2', ly);
+    p.line.setAttribute('x2', lx - ux * 13); p.line.setAttribute('y2', ly - uy * 13);
     p.dot.setAttribute('cx', x); p.dot.setAttribute('cy', y);
   });
   tbParts.textContent = `${shown} / ${parts.length}`;
@@ -207,7 +231,7 @@ function frame(now) {
     if (now - idleSince > 2500) rotY += dt * 0.12;
   }
   rig.rotation.set(rotX, rotY, 0);
-  fitCamera();
+  fitCamera(dt);
   placeLabels();
   opening.classList.toggle('gone', eased > 0.03);
   hint.classList.toggle('show', eased > 0.03 && eased < 0.97 && !selected);
@@ -222,3 +246,5 @@ window.addEventListener('resize', () => {
   readScroll();
 });
 readScroll();
+
+window.__dbg = { scene, camera, parts, rig, renderer, get eased(){ return eased; }, get progress(){ return progress; } };
