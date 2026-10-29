@@ -138,7 +138,7 @@ body {
   opacity: 0; transition: opacity 0.4s; pointer-events: none;
 }
 .hint.show { opacity: 1; }
-@media (max-width: 640px) { .hint { left: 50%; transform: translateX(-50%); bottom: calc(var(--inset) + 92px); } }
+@media (max-width: 640px) { .hint { left: 50%; transform: translateX(-50%); bottom: calc(var(--inset) + 112px); } }
 
 /* title block */
 .titleblock {
