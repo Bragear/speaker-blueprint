@@ -209,7 +209,8 @@ function fitCamera(dt) {
       extent = Math.max(extent, Math.abs(v.x) + rx, Math.abs(v.y) + ry);
     });
     const full = window.innerWidth < window.innerHeight ? 0.94 : window.innerWidth >= 900 ? 0.72 : 0.8;
-    const want = THREE.MathUtils.lerp(0.42, full, THREE.MathUtils.smoothstep(eased, 0, 0.15));
+    const base = THREE.MathUtils.lerp(0.42, 0.6, titleE); // small under the title, larger once it has left
+    const want = THREE.MathUtils.lerp(base, full, THREE.MathUtils.smoothstep(eased, 0, 0.15));
     fitD += (fitD * (extent / want) - fitD) * (fitSnap ? 1 : Math.min(1, dt * 4));
     if (fitSnap) { fitSnapCount++; if (fitSnapCount > 6) fitSnap = false; }
   }
@@ -219,13 +220,17 @@ function fitCamera(dt) {
 
 // ---- scroll → explode
 let progress = 0, eased = 0;
+const HOLD = 0.1; // the first tenth of the scroll carries the title off the sheet; the speaker holds assembled
+let titleP = 0, titleE = 0;
 const scroller = document.getElementById('scroller');
 const opening = document.getElementById('opening');
 const hint = document.getElementById('hint');
 const tbParts = document.getElementById('tb-parts');
 function readScroll() {
   const max = scroller.offsetHeight - window.innerHeight;
-  progress = THREE.MathUtils.clamp(window.scrollY / max, 0, 1);
+  const raw = THREE.MathUtils.clamp(window.scrollY / max, 0, 1);
+  titleP = THREE.MathUtils.clamp(raw / HOLD, 0, 1);
+  progress = THREE.MathUtils.clamp((raw - HOLD) / (1 - HOLD), 0, 1);
 }
 window.addEventListener('scroll', readScroll, { passive: true });
 function partT(i, p) {
@@ -344,7 +349,7 @@ const pa = new THREE.Vector3(), pb = new THREE.Vector3(), pc = new THREE.Vector3
 function placeDims() {
   const c = parts.find((p) => p.cfg.name === 'cabinet');
   if (!c) return;
-  const vis = THREE.MathUtils.smoothstep(eased, 0.015, 0.06) * (1 - THREE.MathUtils.smoothstep(eased, 0.3, 0.42));
+  const vis = THREE.MathUtils.smoothstep(titleE, 0.6, 1) * (1 - THREE.MathUtils.smoothstep(eased, 0.3, 0.42)); // on while the speaker stands assembled, off as it comes apart
   dims.style.opacity = vis * (1 - 0.6 * music.beat); // the dimensions flick on the kick, like a meter
   if (vis <= 0) return;
   const mesh = c.mesh;
@@ -493,12 +498,14 @@ function frame(now) {
   fitCamera(dt);
   placeLabels();
   placeDims();
-  opening.classList.toggle('gone', eased > 0.03);
+  titleE += (titleP - titleE) * Math.min(1, dt * 8);
+  opening.style.transform = `translate(-50%, calc(-50% - ${(titleE * 115).toFixed(2)}vh))`;
+  opening.style.opacity = 1 - THREE.MathUtils.smoothstep(titleE, 0.75, 1);
   const small = window.innerWidth < 640;
   hint.textContent = eased > 0.97
     ? (small ? 'SCROLL UP · TAP REV FOR A NEW STYLE' : 'END OF SHEET · SCROLL UP TO REASSEMBLE · R FOR A NEW STYLE')
     : (small ? 'DRAG TO SPIN · TAP A PART · TAP REV' : 'DRAG TO ROTATE · TAP A PART · R FOR A NEW STYLE · SPACE TO PLAY');
-  hint.classList.toggle('show', eased > 0.03 && !selected);
+  hint.classList.toggle('show', titleE > 0.9 && !selected);
   for (const m of hiddenMats) { m.dashSize = fitD * 0.0075; m.gapSize = fitD * 0.0045; }
   stickerShadow.uniforms.uOffset.value.set(2 * 12 / window.innerWidth, -2 * 14 / window.innerHeight);
   drawOrb(now, dt);

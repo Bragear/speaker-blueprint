@@ -89,7 +89,7 @@ body {
 .opening {
   position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
   text-align: center; z-index: 6; pointer-events: none;
-  transition: opacity 0.5s ease, transform 0.5s ease;
+  transition: opacity 0.3s ease;
   width: min(92vw, 900px);
 }
 .opening.gone { opacity: 0; transform: translate(-50%, -56%); }
