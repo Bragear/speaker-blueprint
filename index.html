@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>HULL MK I — exploded</title>
+<meta name="description" content="A two-way speaker, taken apart as you scroll.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Stencil+Display:wght@700;900&family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<svg class="grain" aria-hidden="true"><filter id="grain"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/></filter><rect width="100%" height="100%" filter="url(#grain)"/></svg>
+
+<div class="sheet" aria-hidden="true">
+  <div class="sheet-frame"></div>
+  <div class="corner tl">A</div><div class="corner tr">1</div><div class="corner bl">2</div><div class="corner br">B</div>
+</div>
+
+<canvas id="stage"></canvas>
+<svg id="leaders" aria-hidden="true"></svg>
+<div id="labels"></div>
+
+<header class="opening" id="opening">
+  <p class="eyebrow">DWG NO. 001 · TWO-WAY MONITOR</p>
+  <h1 class="name">HULL<span>MK I</span></h1>
+  <p class="cue"><span class="cue-line"></span>SCROLL TO DISASSEMBLE</p>
+</header>
+
+<aside class="detail" id="detail" hidden>
+  <button class="detail-close" id="detail-close" aria-label="Close">×</button>
+  <p class="detail-no"><span id="detail-no">1</span></p>
+  <h2 class="detail-name" id="detail-name">GRILLE</h2>
+  <dl class="detail-meta">
+    <div><dt>MATERIAL</dt><dd id="detail-material">—</dd></div>
+    <div><dt>DIMENSION</dt><dd id="detail-dim">—</dd></div>
+  </dl>
+  <p class="detail-fact" id="detail-fact"></p>
+</aside>
+
+<p class="hint" id="hint">DRAG TO ROTATE · TAP A PART</p>
+
+<footer class="titleblock" aria-hidden="true">
+  <div class="tb-row"><span>TITLE</span><strong>HULL MK I · TWO-WAY MONITOR</strong></div>
+  <div class="tb-grid">
+    <div><span>SHEET</span><strong>1 OF 1</strong></div>
+    <div><span>SCALE</span><strong>1 : 2</strong></div>
+    <div><span>REV</span><strong>A</strong></div>
+    <div><span>DRAWN</span><strong>B. ARNTZEN</strong></div>
+    <div><span>DATE</span><strong>29.10.2026</strong></div>
+    <div><span>PARTS</span><strong id="tb-parts">0 / 8</strong></div>
+  </div>
+</footer>
+
+<div class="scroller" id="scroller"></div>
+<script type="module" src="main.js"></script>
+</body>
+</html>
