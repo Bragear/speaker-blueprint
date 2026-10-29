@@ -541,7 +541,15 @@ const PIANO_AT = 8, PIANO_UNTIL = 16; // placeholder track: the plucks run from 
 const PIANO_QUIET_MS = 2500;          // no attacks for this long also ends the round
 let dbgPiano = null;
 let midPrev = 0, midDev = 6, topPrev = 0, lastKey = 0, keyTimes = [], pianoDone = false, flicker = null, trackPrevT = 0;
-function resetPiano() { pianoDone = false; flicker = null; keyTimes = []; }
+function resetPiano() { // a fresh start: the sheet waits on Blueprint until the piano's round has played
+  pianoDone = false; flicker = null; keyTimes = [];
+  if (current !== 'A') stampTo('A');
+}
+function stampTo(letter) {
+  revCell.classList.remove('hit'); void revCell.offsetWidth; revCell.classList.add('hit');
+  flash.classList.remove('go'); void flash.offsetWidth; flash.classList.add('go');
+  setTimeout(() => applyStyle(letter), 140);
+}
 function cuePiano() { // the cue: P, or a tap on the orb. Once to start when the piano comes in, again when its round is over.
   if (!(playing || listening)) return;
   if (flicker) endPiano(); else flicker = { lastFlip: 0, lastKey: performance.now(), byTime: false };
@@ -658,7 +666,7 @@ function analyse(now, dt) {
   bassDev += (Math.abs(bass - bassAvg) - bassDev) * Math.min(1, dt * 2.5);
   if (bass > bassPrev && bass - bassAvg > Math.max(6, 1.3 * bassDev) && bass > 25 && now - lastBeat > 280) { // 280 ms apart at most: kicks, not every bass note
     music.beat = 1; lastBeat = now;
-    if (!flicker && ++beatCount >= BEATS_PER_STYLE) autoStamp(now);
+    if (!flicker && pianoDone && ++beatCount >= BEATS_PER_STYLE) autoStamp(now); // the cycle only runs once the piano's round has played
   }
   bassPrev = bass;
   // a key: a sharp rise in the piano range that is not a kick and not mostly treble (snare, hats)
@@ -803,7 +811,7 @@ function drawOrb(now, dt) {
   const size = orbCanvas.clientWidth;
   if (!size) return;
   const live = playing || listening;
-  if (live && !flicker && now - lastAutoStamp > STYLE_FALLBACK_MS) autoStamp(now);
+  if (live && !flicker && pianoDone && now - lastAutoStamp > STYLE_FALLBACK_MS) autoStamp(now);
   const dpr = current === 'D' ? 0.25 : Math.min(2, window.devicePixelRatio || 1);
   const px = Math.max(1, Math.round(size * dpr));
   if (orbCanvas.width !== px) orbCanvas.width = orbCanvas.height = px;
