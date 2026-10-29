@@ -345,7 +345,7 @@ function placeDims() {
   const c = parts.find((p) => p.cfg.name === 'cabinet');
   if (!c) return;
   const vis = THREE.MathUtils.smoothstep(eased, 0.015, 0.06) * (1 - THREE.MathUtils.smoothstep(eased, 0.3, 0.42));
-  dims.style.opacity = vis;
+  dims.style.opacity = vis * (1 - 0.6 * music.beat); // the dimensions flick on the kick, like a meter
   if (vis <= 0) return;
   const mesh = c.mesh;
   if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
@@ -477,6 +477,7 @@ function frame(now) {
     const t = partT(i, eased);
     p.lift += ((p === hovered ? 1 : 0) - p.lift) * Math.min(1, dt * 8);
     p.obj.position.copy(p.base).addScaledVector(p.dir, t).addScaledVector(p.liftDir, p.lift * 0.012);
+    playPart(p, now / 1000);
   });
   if (!dragging) {
     rotY += velY; velY *= 0.92;
@@ -748,6 +749,15 @@ function paintArcade(ctx, size, frame) { // a sprite: square pixels on a 4px gri
     const s = d.spark ? cell * 2 : cell;
     ctx.fillRect(Math.floor(d.x / cell) * cell, Math.floor(d.y / cell) * cell, s, s);
   }
+}
+// -- the speaker plays: each part moves to its own band (all values settle to 0 when nothing is playing)
+function playPart(p, tt) {
+  const m = music, n = p.cfg.name, o = p.obj;
+  if (n === 'woofer') o.position.z += (0.5 * m.bass + 0.9 * m.beat) * 0.008;                       // the cone pumps forward on the bass and the kick
+  else if (n === 'tweeter') { const s = 1 + 0.10 * m.highs; o.scale.set(s, s, s); o.position.z += m.highs * 0.0012 * Math.sin(tt * 55); } // shimmers with the highs
+  else if (n === 'port') { const s = 1 + 0.12 * m.bass + 0.06 * m.beat; o.scale.set(s, s, 1); }     // breathes with the low end
+  else if (n === 'cabinet') { o.position.x += m.beat * 0.0015 * Math.sin(tt * 97); o.position.y += m.beat * 0.0015 * Math.sin(tt * 83); } // shivers on the kick
+  else if (n === 'grille') o.position.z += m.bass * 0.0008 * Math.sin(tt * 70);                      // the cloth buzzes a little
 }
 function autoStamp(now) { beatCount = 0; lastAutoStamp = now; restamp(); }
 function drawOrb(now, dt) {
