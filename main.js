@@ -460,15 +460,16 @@ function applyStyle(letter) {
   applyMats();
 }
 let stamping = false;
-function restamp() {
-  if (stamping || !parts.length) return;
+function restamp(q) {
+  const quick = q === true; // quick: the piano shuffle, several stamps a second
+  if (!parts.length || (stamping && !quick)) return;
   stamping = true;
   const order = Object.keys(STYLES);
   const letter = order[(order.indexOf(current) + 1) % order.length];
   revCell.classList.remove('hit'); void revCell.offsetWidth; revCell.classList.add('hit');
   flash.classList.remove('go'); void flash.offsetWidth; flash.classList.add('go');
-  setTimeout(() => applyStyle(letter), 140);
-  setTimeout(() => { stamping = false; }, 500);
+  setTimeout(() => applyStyle(letter), quick ? 0 : 140);
+  setTimeout(() => { stamping = false; }, quick ? 80 : 500);
 }
 revCell.addEventListener('click', restamp);
 window.addEventListener('keydown', (e) => { if (e.key === 'r' || e.key === 'R') restamp(); if (e.key === 'l' || e.key === 'L') listenBtn.click(); if (e.key === 'Escape') select(null); });
@@ -534,6 +535,12 @@ const lo = { bass: 0, mids: 0, highs: 0, vol: 0 }, hi = { bass: 60, mids: 40, hi
 let actx = null, analyser = null, micAnalyser = null, micStream = null, micSource = null, listening = false, freq = null, playing = false, bassAvg = 0, bassDev = 8, bassPrev = 0, lastBeat = 0;
 const BEATS_PER_STYLE = 8, STYLE_FALLBACK_MS = 10000; // while playing, stamp the next style every 8 beats (or every 10 s if no beats are heard)
 let beatCount = 0, lastAutoStamp = 0;
+// the piano shuffle: the first time a run of note attacks lands in the piano range, every key flips to the next style
+const PIANO_AT = null;      // seconds into the bundled track where the piano first comes in; null = detect it
+const PIANO_FLIPS = 8;      // two rounds of the four styles
+let dbgPiano = null;
+let midPrev = 0, midDev = 6, topPrev = 0, lastKey = 0, keyTimes = [], pianoDone = false, flicker = null, trackPrevT = 0;
+function resetPiano() { pianoDone = false; flicker = null; keyTimes = []; }
 let orbInk = [238, 243, 255], orbPaper = [13, 55, 119];
 
 function parseColor(s) {
@@ -572,6 +579,7 @@ function ensureAudio() {
 function setPlaying(on) {
   playing = on;
   beatCount = 0; lastAutoStamp = performance.now();
+  if (on && track.currentTime < 0.5) resetPiano();
   playBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
   playBtn.setAttribute('aria-label', on ? 'Pause music' : 'Play music');
   playLabel.textContent = on ? 'Pause' : 'Play';
@@ -597,6 +605,7 @@ window.addEventListener('keydown', (e) => {
 // -- listen mode: the room through the microphone, for music that plays elsewhere (Spotify, a speaker, a phone)
 function setListening(on) {
   listening = on;
+  if (on) resetPiano();
   listenBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
   listenLabel.textContent = on ? 'Stop' : 'Listen';
   beatCount = 0; lastAutoStamp = performance.now();
@@ -642,9 +651,26 @@ function analyse(now, dt) {
   bassDev += (Math.abs(bass - bassAvg) - bassDev) * Math.min(1, dt * 2.5);
   if (bass > bassPrev && bass - bassAvg > Math.max(6, 1.3 * bassDev) && bass > 25 && now - lastBeat > 280) { // 280 ms apart at most: kicks, not every bass note
     music.beat = 1; lastBeat = now;
-    if (++beatCount >= BEATS_PER_STYLE) autoStamp(now);
+    if (!flicker && ++beatCount >= BEATS_PER_STYLE) autoStamp(now);
   }
   bassPrev = bass;
+  // a key: a sharp rise in the piano range that is not a kick and not mostly treble (snare, hats)
+  const midHi = band(bin(300), bin(2500)), top = band(bin(4000), bin(10000));
+  const midRise = midHi - midPrev, topRise = top - topPrev; midPrev = midHi; topPrev = top;
+  dbgPiano = { midHi: +midHi.toFixed(1), midRise: +midRise.toFixed(1), midDev: +midDev.toFixed(1), topRise: +topRise.toFixed(1), keys: keyTimes.length, flicker: !!flicker, done: pianoDone };
+  midDev += (Math.abs(midRise) - midDev) * Math.min(1, dt * 2);
+  const key = midRise > Math.max(4, 1.0 * midDev) && topRise < 0.8 * midRise && now - lastBeat > 60 && now - lastKey > 90;
+  if (key) { lastKey = now; keyTimes.push(now); }
+  keyTimes = keyTimes.filter((t) => now - t < 2000);
+  if (!listening) { if (track.currentTime < trackPrevT - 1) resetPiano(); trackPrevT = track.currentTime; } // the loop came round
+  if (!pianoDone && !flicker) {
+    const armed = PIANO_AT != null ? (!listening && track.currentTime >= PIANO_AT) : (keyTimes.length >= 3 && (listening || track.currentTime > 1.5));
+    if (armed) flicker = { flips: 0, lastFlip: 0 };
+  }
+  if (flicker) {
+    if ((key && now - flicker.lastFlip > 90) || now - flicker.lastFlip > 220) { restamp(true); flicker.lastFlip = now; flicker.flips++; }
+    if (flicker.flips >= PIANO_FLIPS) { flicker = null; pianoDone = true; beatCount = 0; lastAutoStamp = now; }
+  }
   ease('bass', range('bass', bass, 30), dt, 20, 6);
   ease('mids', range('mids', mids, 20), dt, 14, 5);
   ease('highs', range('highs', highs, 12), dt, 18, 7);
@@ -771,7 +797,7 @@ function drawOrb(now, dt) {
   const size = orbCanvas.clientWidth;
   if (!size) return;
   const live = playing || listening;
-  if (live && now - lastAutoStamp > STYLE_FALLBACK_MS) autoStamp(now);
+  if (live && !flicker && now - lastAutoStamp > STYLE_FALLBACK_MS) autoStamp(now);
   const dpr = current === 'D' ? 0.25 : Math.min(2, window.devicePixelRatio || 1);
   const px = Math.max(1, Math.round(size * dpr));
   if (orbCanvas.width !== px) orbCanvas.width = orbCanvas.height = px;
@@ -790,4 +816,4 @@ function drawOrb(now, dt) {
 }
 orbTheme();
 
-window.__dbg = { scene, camera, parts, rig, renderer, applyStyle, restamp, music, orbFrame, get playing() { return playing; }, get listening() { return listening; }, get eased() { return eased; }, get progress() { return progress; } };
+window.__dbg = { scene, camera, parts, rig, renderer, applyStyle, restamp, music, orbFrame, get playing() { return playing; }, get piano() { return dbgPiano; }, get listening() { return listening; }, get eased() { return eased; }, get progress() { return progress; } };
