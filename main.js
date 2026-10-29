@@ -535,14 +535,18 @@ const lo = { bass: 0, mids: 0, highs: 0, vol: 0 }, hi = { bass: 60, mids: 40, hi
 let actx = null, analyser = null, micAnalyser = null, micStream = null, micSource = null, listening = false, freq = null, playing = false, bassAvg = 0, bassDev = 8, bassPrev = 0, lastBeat = 0;
 const BEATS_PER_STYLE = 8, STYLE_FALLBACK_MS = 10000; // while playing, stamp the next style every 8 beats (or every 10 s if no beats are heard)
 let beatCount = 0, lastAutoStamp = 0;
-// the piano shuffle: when the piano comes in, every key flips to the next style for two rounds of the four
-// It starts from a cue, never a guess: the P key or a tap on the orb, or PIANO_AT seconds into the bundled track.
-const PIANO_AT = 8;         // placeholder track: the plucks at bar 5. Set to the real entry when the track is in.
-const PIANO_FLIPS = 8;      // two rounds of the four styles
+// the piano shuffle: while the piano's first round plays, every key flips to the next style
+// It starts and ends from a cue, never a guess: P or a tap on the orb toggles it; on the bundled track PIANO_AT and PIANO_UNTIL pin it.
+const PIANO_AT = 8, PIANO_UNTIL = 16; // placeholder track: the plucks run from bar 5 to the end of the loop. Set to the real entry when the track is in.
+const PIANO_QUIET_MS = 2500;          // no attacks for this long also ends the round
 let dbgPiano = null;
 let midPrev = 0, midDev = 6, topPrev = 0, lastKey = 0, keyTimes = [], pianoDone = false, flicker = null, trackPrevT = 0;
 function resetPiano() { pianoDone = false; flicker = null; keyTimes = []; }
-function cuePiano() { if ((playing || listening) && !flicker) flicker = { flips: 0, lastFlip: 0 }; } // the cue: P, or a tap on the orb
+function cuePiano() { // the cue: P, or a tap on the orb. Once to start when the piano comes in, again when its round is over.
+  if (!(playing || listening)) return;
+  if (flicker) endPiano(); else flicker = { lastFlip: 0, lastKey: performance.now(), byTime: false };
+}
+function endPiano() { flicker = null; pianoDone = true; beatCount = 0; lastAutoStamp = performance.now(); }
 orbCanvas.addEventListener('click', cuePiano);
 let orbInk = [238, 243, 255], orbPaper = [13, 55, 119];
 
@@ -666,10 +670,12 @@ function analyse(now, dt) {
   if (key) { lastKey = now; keyTimes.push(now); }
   keyTimes = keyTimes.filter((t) => now - t < 2000);
   if (!listening) { if (track.currentTime < trackPrevT - 1) resetPiano(); trackPrevT = track.currentTime; } // the loop came round
-  if (!pianoDone && !flicker && PIANO_AT != null && !listening && track.currentTime >= PIANO_AT) flicker = { flips: 0, lastFlip: 0 };
+  if (!pianoDone && !flicker && PIANO_AT != null && !listening && track.currentTime >= PIANO_AT && track.currentTime < PIANO_UNTIL) flicker = { lastFlip: 0, lastKey: now, byTime: true };
   if (flicker) {
-    if ((key && now - flicker.lastFlip > 90) || now - flicker.lastFlip > 220) { restamp(true); flicker.lastFlip = now; flicker.flips++; }
-    if (flicker.flips >= PIANO_FLIPS) { flicker = null; pianoDone = true; beatCount = 0; lastAutoStamp = now; }
+    if (key) flicker.lastKey = now;
+    if ((key && now - flicker.lastFlip > 90) || now - flicker.lastFlip > 300) { restamp(true); flicker.lastFlip = now; }
+    const timeUp = flicker.byTime && !listening && track.currentTime >= PIANO_UNTIL;
+    if (timeUp || now - flicker.lastKey > PIANO_QUIET_MS) endPiano();
   }
   ease('bass', range('bass', bass, 30), dt, 20, 6);
   ease('mids', range('mids', mids, 20), dt, 14, 5);
