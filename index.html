@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Stencil+Display:wght@700;900&family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&family=Archivo:wght@400;500;600&family=Archivo+Black&family=Bangers&family=Courier+Prime:wght@400;700&family=Press+Start+2P&display=swap" rel="stylesheet">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230d3777'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%23eef3ff' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='3' fill='%23ff5a3c'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=7">
+<link rel="stylesheet" href="style.css?v=8">
 <script type="importmap">
 { "imports": {
     "thinking-orbs/engine": "https://cdn.jsdelivr.net/npm/thinking-orbs@0.3.2/dist/engine.es.js",
@@ -54,11 +54,17 @@
 
 <div class="player" id="player">
   <canvas class="orb" id="orb" aria-hidden="true"></canvas>
-  <button class="play" id="play" type="button" aria-pressed="false" aria-label="Play music">
-    <svg class="ic-play" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 1.5v9l8-4.5z"/></svg>
-    <svg class="ic-pause" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 1.5h3v9H2zM7 1.5h3v9H7z"/></svg>
-    <span class="play-label" id="play-label">Play</span>
-  </button>
+  <div class="controls">
+    <button class="play" id="play" type="button" aria-pressed="false" aria-label="Play music">
+      <svg class="ic-play" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 1.5v9l8-4.5z"/></svg>
+      <svg class="ic-pause" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 1.5h3v9H2zM7 1.5h3v9H7z"/></svg>
+      <span class="play-label" id="play-label">Play</span>
+    </button>
+    <button class="play" id="listen" type="button" aria-pressed="false" aria-label="Listen to the room through the microphone">
+      <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1a2 2 0 0 0-2 2v3a2 2 0 0 0 4 0V3a2 2 0 0 0-2-2zM2.5 6h1a2.5 2.5 0 0 0 5 0h1A3.5 3.5 0 0 1 6.5 9.46V11h-1V9.46A3.5 3.5 0 0 1 2.5 6z"/></svg>
+      <span class="play-label" id="listen-label">Listen</span>
+    </button>
+  </div>
   <audio id="track" preload="none" loop>
     <source src="audio/track.mp3" type="audio/mpeg">
     <source src="audio/track.wav" type="audio/wav">
@@ -83,6 +89,6 @@
 </footer>
 
 <div class="scroller" id="scroller"></div>
-<script type="module" src="main.js?v=7"></script>
+<script type="module" src="main.js?v=8"></script>
 </body>
 </html>

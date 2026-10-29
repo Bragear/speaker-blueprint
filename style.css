@@ -305,8 +305,9 @@ html[data-style="arcade"] .bom-row > span:nth-child(3) { font-size: 7px; }
   animation: fade 0.8s ease 0.3s both;
 }
 .orb { display: block; width: 140px; height: 140px; }
+.controls { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
 .play {
-  display: inline-flex; align-items: center; gap: 9px; padding: 8px 13px 8px 11px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 9px; padding: 8px 13px 8px 11px; min-width: 96px;
   border: 1px solid var(--ink-soft); background: var(--panel); color: var(--ink);
   font: 500 10px/1 var(--mono); letter-spacing: 0.25em; text-transform: uppercase; cursor: pointer;
   transition: background 0.15s, color 0.15s, border-color 0.15s;

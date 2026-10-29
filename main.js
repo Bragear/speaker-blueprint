@@ -466,7 +466,7 @@ function restamp() {
   setTimeout(() => { stamping = false; }, 500);
 }
 revCell.addEventListener('click', restamp);
-window.addEventListener('keydown', (e) => { if (e.key === 'r' || e.key === 'R') restamp(); if (e.key === 'Escape') select(null); });
+window.addEventListener('keydown', (e) => { if (e.key === 'r' || e.key === 'R') restamp(); if (e.key === 'l' || e.key === 'L') listenBtn.click(); if (e.key === 'Escape') select(null); });
 
 // ---- frame loop
 let last = performance.now(), shift = 0;
@@ -518,11 +518,12 @@ readScroll();
 const orbCanvas = document.getElementById('orb'), orbCtx = orbCanvas.getContext('2d');
 const player = document.getElementById('player'), playBtn = document.getElementById('play'), playLabel = document.getElementById('play-label');
 const track = document.getElementById('track');
-const listening = resolvePreset('listening', 64).opts; // the library's tuned "listening" profile, densified for a bigger orb
-const orbOpts = { ...listening, rings: 14, lonDensity: 36, rBase: (listening.rBase ?? 0.6) * 1.6, rDepth: (listening.rDepth ?? 1.7) * 1.6 };
+const listenBtn = document.getElementById('listen'), listenLabel = document.getElementById('listen-label');
+const listenPreset = resolvePreset('listening', 64).opts; // the library's tuned "listening" profile, densified for a bigger orb
+const orbOpts = { ...listenPreset, rings: 14, lonDensity: 36, rBase: (listenPreset.rBase ?? 0.6) * 1.6, rDepth: (listenPreset.rDepth ?? 1.7) * 1.6 };
 const music = { bass: 0, mids: 0, highs: 0, vol: 0, beat: 0, spin: 0, scan: 0 };
 const lo = { bass: 0, mids: 0, highs: 0, vol: 0 }, hi = { bass: 60, mids: 40, highs: 25, vol: 40 }; // each band's running range, so any track normalises itself
-let actx = null, analyser = null, freq = null, playing = false, bassAvg = 0, bassDev = 8, bassPrev = 0, lastBeat = 0;
+let actx = null, analyser = null, micAnalyser = null, micStream = null, micSource = null, listening = false, freq = null, playing = false, bassAvg = 0, bassDev = 8, bassPrev = 0, lastBeat = 0;
 const BEATS_PER_STYLE = 8, STYLE_FALLBACK_MS = 10000; // while playing, stamp the next style every 8 beats (or every 10 s if no beats are heard)
 let beatCount = 0, lastAutoStamp = 0;
 let orbInk = [238, 243, 255], orbPaper = [13, 55, 119];
@@ -571,6 +572,7 @@ function noTrack() { playLabel.textContent = 'No track'; playBtn.disabled = true
 playBtn.addEventListener('click', async () => {
   if (playing) { track.pause(); setPlaying(false); return; }
   try {
+    if (listening) stopListening();
     ensureAudio();
     if (actx.state !== 'running') await actx.resume();
     await track.play();
@@ -584,6 +586,34 @@ window.addEventListener('keydown', (e) => {
   e.preventDefault(); // Space would otherwise scroll the sheet as well
   playBtn.click();
 });
+// -- listen mode: the room through the microphone, for music that plays elsewhere (Spotify, a speaker, a phone)
+function setListening(on) {
+  listening = on;
+  listenBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  listenLabel.textContent = on ? 'Stop' : 'Listen';
+  beatCount = 0; lastAutoStamp = performance.now();
+}
+async function startListening() {
+  if (playing) { track.pause(); setPlaying(false); }
+  ensureAudio();
+  if (actx.state !== 'running') await actx.resume();
+  micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+  micSource = actx.createMediaStreamSource(micStream);
+  if (!micAnalyser) { micAnalyser = actx.createAnalyser(); micAnalyser.fftSize = 1024; micAnalyser.smoothingTimeConstant = 0.3; }
+  micSource.connect(micAnalyser); // analysed only, never played back, so no feedback
+  micStream.getAudioTracks()[0].addEventListener('ended', stopListening);
+  setListening(true);
+}
+function stopListening() {
+  micStream?.getTracks().forEach((t) => t.stop()); micSource?.disconnect();
+  micStream = micSource = null;
+  setListening(false);
+}
+listenBtn.addEventListener('click', async () => {
+  if (listening) { stopListening(); return; }
+  try { await startListening(); }
+  catch (err) { console.warn('listen: no microphone', err); setListening(false); listenLabel.textContent = 'No mic'; setTimeout(() => { if (!listening) listenLabel.textContent = 'Listen'; }, 2200); }
+});
 track.addEventListener('play', () => setPlaying(true));   // keep the button honest when the OS media keys drive it
 track.addEventListener('pause', () => setPlaying(false));
 track.querySelector('source:last-child').addEventListener('error', noTrack); // every source failed to load
@@ -596,13 +626,13 @@ function range(key, v, floor) { // where v sits between the band's recent quiete
 }
 function ease(k, target, dt, attack, release) { music[k] += (target - music[k]) * Math.min(1, dt * (target > music[k] ? attack : release)); }
 function analyse(now, dt) {
-  analyser.getByteFrequencyData(freq);
+  (listening ? micAnalyser : analyser).getByteFrequencyData(freq);
   const hz = actx.sampleRate / analyser.fftSize, bin = (f) => Math.min(freq.length - 1, Math.round(f / hz));
   const bass = band(bin(20), bin(150) + 1), mids = band(bin(150), bin(2000)), highs = band(bin(2000), bin(10000)), vol = band(0, bin(10000));
   // a beat: the bass rises clear of its recent average, by more than its usual wander
   bassAvg += (bass - bassAvg) * Math.min(1, dt * 2.5);
   bassDev += (Math.abs(bass - bassAvg) - bassDev) * Math.min(1, dt * 2.5);
-  if (bass > bassPrev && bass - bassAvg > Math.max(6, 1.3 * bassDev) && bass > 60 && now - lastBeat > 280) { // 280 ms apart at most: kicks, not every bass note
+  if (bass > bassPrev && bass - bassAvg > Math.max(6, 1.3 * bassDev) && bass > 25 && now - lastBeat > 280) { // 280 ms apart at most: kicks, not every bass note
     music.beat = 1; lastBeat = now;
     if (++beatCount >= BEATS_PER_STYLE) autoStamp(now);
   }
@@ -723,11 +753,12 @@ function autoStamp(now) { beatCount = 0; lastAutoStamp = now; restamp(); }
 function drawOrb(now, dt) {
   const size = orbCanvas.clientWidth;
   if (!size) return;
-  if (playing && now - lastAutoStamp > STYLE_FALLBACK_MS) autoStamp(now);
+  const live = playing || listening;
+  if (live && now - lastAutoStamp > STYLE_FALLBACK_MS) autoStamp(now);
   const dpr = current === 'D' ? 0.25 : Math.min(2, window.devicePixelRatio || 1);
   const px = Math.max(1, Math.round(size * dpr));
   if (orbCanvas.width !== px) orbCanvas.width = orbCanvas.height = px;
-  if (playing && analyser) analyse(now, dt);
+  if (live && freq) analyse(now, dt);
   else for (const k of ['bass', 'mids', 'highs', 'vol']) ease(k, 0, dt, 20, 1.5); // paused: settle back to idle
   music.beat *= Math.exp(-dt * 5);
   music.spin += dt * (0.9 * music.vol + 0.6 * music.bass);                       // louder = turns faster
@@ -742,4 +773,4 @@ function drawOrb(now, dt) {
 }
 orbTheme();
 
-window.__dbg = { scene, camera, parts, rig, renderer, applyStyle, restamp, music, orbFrame, get playing() { return playing; }, get eased() { return eased; }, get progress() { return progress; } };
+window.__dbg = { scene, camera, parts, rig, renderer, applyStyle, restamp, music, orbFrame, get playing() { return playing; }, get listening() { return listening; }, get eased() { return eased; }, get progress() { return progress; } };
