@@ -75,6 +75,36 @@ const fillMat = new THREE.ShaderMaterial({ // blueprint: translucent fill with a
 const edgeMat = new THREE.LineBasicMaterial({ color: '#eef3ff', transparent: true, opacity: 0.85 });
 const edgeMatHover = new THREE.LineBasicMaterial({ color: '#ffffff' });
 const edgeMatActive = new THREE.LineBasicMaterial({ color: '#ff5a3c' });
+// blueprint hidden lines: a depth-only pass records what is in front, then dashed edges draw only where they are behind it
+const depthMat = new THREE.MeshBasicMaterial({ colorWrite: false, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+const dashed = (color, opacity) => new THREE.LineDashedMaterial({ color, transparent: true, opacity, dashSize: 0.01, gapSize: 0.006, depthFunc: THREE.GreaterDepth, depthWrite: false });
+const hiddenMat = dashed('#eef3ff', 0.42), hiddenMatHover = dashed('#ffffff', 0.6), hiddenMatActive = dashed('#ff5a3c', 0.8);
+const hiddenMats = [hiddenMat, hiddenMatHover, hiddenMatActive];
+// EdgesGeometry hands back loose segments; chain them into polylines so dashes run continuously around rims and along edges
+function chainDistances(geo) {
+  const pos = geo.attributes.position.array, n = pos.length / 3, segs = n / 2;
+  const key = (i) => `${pos[i * 3].toFixed(5)},${pos[i * 3 + 1].toFixed(5)},${pos[i * 3 + 2].toFixed(5)}`;
+  const at = new Map();
+  for (let v = 0; v < n; v++) { const k = key(v); if (!at.has(k)) at.set(k, []); at.get(k).push(v >> 1); }
+  const len = (sg) => Math.hypot(pos[sg * 6] - pos[sg * 6 + 3], pos[sg * 6 + 1] - pos[sg * 6 + 4], pos[sg * 6 + 2] - pos[sg * 6 + 5]);
+  const other = (sg, v) => (sg * 2 === v ? sg * 2 + 1 : sg * 2);
+  const next = (sg, v) => { const list = at.get(key(v)); return list.length === 2 ? list.find((t) => t !== sg) : -1; };
+  const touching = (sg, v) => (key(sg * 2) === key(v) ? sg * 2 : sg * 2 + 1);
+  const dist = new Float32Array(n), done = new Uint8Array(segs);
+  for (let s0 = 0; s0 < segs; s0++) {
+    if (done[s0]) continue;
+    let sg = s0, v = s0 * 2, guard = 0; // walk back to the chain's free end (or round a loop)
+    while (guard++ < segs) { const q = next(sg, v); if (q < 0 || q === s0 || done[q]) break; v = other(q, touching(q, v)); sg = q; }
+    let d = 0, cur = sg, head = v; guard = 0; // then forward, accumulating length
+    while (cur >= 0 && !done[cur] && guard++ < segs) {
+      const tail = other(cur, head);
+      dist[head] = d; d += len(cur); dist[tail] = d; done[cur] = 1;
+      const q = next(cur, tail); if (q < 0) break;
+      head = touching(q, tail); cur = q;
+    }
+  }
+  geo.setAttribute('lineDistance', new THREE.BufferAttribute(dist, 1));
+}
 const zineEdge = new THREE.LineBasicMaterial({ color: '#111111' });
 const arcadeEdge = new THREE.LineBasicMaterial({ color: '#0f380f' });
 function gradient(steps) {
@@ -91,7 +121,7 @@ const hullShader = { // zine: thick ink outline, drawn as an inflated back-facin
   fragmentShader: `uniform vec3 uColor; void main(){ gl_FragColor = vec4(uColor, 1.0); }`,
 };
 
-const parts = []; // { cfg, obj, mesh, base, edges, hull, dir, mats, r, lift }
+const parts = []; // { cfg, obj, mesh, base, edges, hidden, depth, hull, dir, mats, r, lift }
 
 const loader = new GLTFLoader();
 loader.load('model/speaker.glb', (gltf) => {
@@ -108,6 +138,13 @@ loader.load('model/speaker.glb', (gltf) => {
     const edges = new THREE.LineSegments(new THREE.EdgesGeometry(o.geometry, 28), edgeMat);
     edges.renderOrder = 2;
     o.add(edges);
+    chainDistances(edges.geometry);
+    const hidden = new THREE.LineSegments(edges.geometry, hiddenMat);
+    hidden.renderOrder = 3;
+    o.add(hidden);
+    const depth = new THREE.Mesh(o.geometry, depthMat);
+    depth.renderOrder = -1;
+    o.add(depth);
     const hg = o.geometry.clone(); hg.deleteAttribute('normal'); hg.deleteAttribute('uv');
     const smooth = mergeVertices(hg); smooth.computeVertexNormals();
     const hull = new THREE.Mesh(smooth, new THREE.ShaderMaterial({ ...hullShader, uniforms: THREE.UniformsUtils.clone(hullShader.uniforms) }));
@@ -122,7 +159,7 @@ loader.load('model/speaker.glb', (gltf) => {
       D: new THREE.MeshToonMaterial({ color: ARCADE[cfg.name], gradientMap: toon2 }),
     };
     const dir = new THREE.Vector3(...cfg.dir);
-    parts.push({ cfg, obj: target, mesh: o, base: target.position.clone(), edges, hull, dir, mats, r: o.geometry.boundingSphere.radius, lift: 0,
+    parts.push({ cfg, obj: target, mesh: o, base: target.position.clone(), edges, hidden, depth, hull, dir, mats, r: o.geometry.boundingSphere.radius, lift: 0,
       liftDir: dir.length() ? dir.clone().normalize() : new THREE.Vector3(0, 1, 0) });
   });
   parts.sort((a, b) => a.cfg.no - b.cfg.no);
@@ -136,6 +173,7 @@ loader.load('model/speaker.glb', (gltf) => {
 let modelRoot = null, fitD = 1, fitSnap = false, fitSnapCount = 0;
 const v = new THREE.Vector3(), bb = new THREE.Box3(), bc = new THREE.Vector3(), fitTarget = new THREE.Vector3();
 function fitCamera(dt) {
+  if (!window.innerWidth || !window.innerHeight) return; // a hidden tab has no size; skip so fitD never goes NaN
   if (modelRoot && parts.length) {
     rig.updateMatrixWorld();
     bb.makeEmpty();
@@ -335,6 +373,7 @@ function applyMats() {
     const state = q === selected ? 'active' : q === hovered ? 'hover' : 'base';
     if (current === 'A') {
       q.edges.material = state === 'active' ? edgeMatActive : state === 'hover' ? edgeMatHover : edgeMat;
+      q.hidden.material = state === 'active' ? hiddenMatActive : state === 'hover' ? hiddenMatHover : hiddenMat;
     } else if (current === 'B') {
       const m = q.mats.B; m.emissive.set(state === 'active' ? '#ff5a3c' : '#ffffff'); m.emissiveIntensity = state === 'active' ? 0.5 : state === 'hover' ? 0.12 : 0;
     } else if (current === 'C') {
@@ -384,6 +423,8 @@ function applyStyle(letter) {
   parts.forEach((p) => {
     p.mesh.material = p.mats[letter];
     p.hull.visible = zine;
+    p.hidden.visible = letter === 'A';
+    p.depth.visible = letter === 'A';
     p.edges.visible = !studio;
     p.edges.material = zine ? zineEdge : arcade ? arcadeEdge : edgeMat;
   });
@@ -433,6 +474,7 @@ function frame(now) {
     ? (small ? 'SCROLL UP · TAP REV FOR A NEW STYLE' : 'END OF SHEET · SCROLL UP TO REASSEMBLE · R FOR A NEW STYLE')
     : (small ? 'DRAG TO SPIN · TAP A PART · TAP REV' : 'DRAG TO ROTATE · TAP A PART · PRESS R FOR A NEW STYLE');
   hint.classList.toggle('show', eased > 0.03 && !selected);
+  for (const m of hiddenMats) { m.dashSize = fitD * 0.0075; m.gapSize = fitD * 0.0045; }
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }
