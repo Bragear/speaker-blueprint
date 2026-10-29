@@ -472,7 +472,7 @@ function restamp(q) {
   setTimeout(() => { stamping = false; }, quick ? 80 : 500);
 }
 revCell.addEventListener('click', restamp);
-window.addEventListener('keydown', (e) => { if (e.key === 'r' || e.key === 'R') restamp(); if (e.key === 'l' || e.key === 'L') listenBtn.click(); if (e.key === 'Escape') select(null); });
+window.addEventListener('keydown', (e) => { if (e.key === 'r' || e.key === 'R') restamp(); if (e.key === 'l' || e.key === 'L') listenBtn.click(); if (e.key === 'p' || e.key === 'P') cuePiano(); if (e.key === 'Escape') select(null); });
 
 // ---- frame loop
 let last = performance.now(), shift = 0;
@@ -535,12 +535,15 @@ const lo = { bass: 0, mids: 0, highs: 0, vol: 0 }, hi = { bass: 60, mids: 40, hi
 let actx = null, analyser = null, micAnalyser = null, micStream = null, micSource = null, listening = false, freq = null, playing = false, bassAvg = 0, bassDev = 8, bassPrev = 0, lastBeat = 0;
 const BEATS_PER_STYLE = 8, STYLE_FALLBACK_MS = 10000; // while playing, stamp the next style every 8 beats (or every 10 s if no beats are heard)
 let beatCount = 0, lastAutoStamp = 0;
-// the piano shuffle: the first time a run of note attacks lands in the piano range, every key flips to the next style
-const PIANO_AT = null;      // seconds into the bundled track where the piano first comes in; null = detect it
+// the piano shuffle: when the piano comes in, every key flips to the next style for two rounds of the four
+// It starts from a cue, never a guess: the P key or a tap on the orb, or PIANO_AT seconds into the bundled track.
+const PIANO_AT = 8;         // placeholder track: the plucks at bar 5. Set to the real entry when the track is in.
 const PIANO_FLIPS = 8;      // two rounds of the four styles
 let dbgPiano = null;
 let midPrev = 0, midDev = 6, topPrev = 0, lastKey = 0, keyTimes = [], pianoDone = false, flicker = null, trackPrevT = 0;
 function resetPiano() { pianoDone = false; flicker = null; keyTimes = []; }
+function cuePiano() { if ((playing || listening) && !flicker) flicker = { flips: 0, lastFlip: 0 }; } // the cue: P, or a tap on the orb
+orbCanvas.addEventListener('click', cuePiano);
 let orbInk = [238, 243, 255], orbPaper = [13, 55, 119];
 
 function parseColor(s) {
@@ -663,10 +666,7 @@ function analyse(now, dt) {
   if (key) { lastKey = now; keyTimes.push(now); }
   keyTimes = keyTimes.filter((t) => now - t < 2000);
   if (!listening) { if (track.currentTime < trackPrevT - 1) resetPiano(); trackPrevT = track.currentTime; } // the loop came round
-  if (!pianoDone && !flicker) {
-    const armed = PIANO_AT != null ? (!listening && track.currentTime >= PIANO_AT) : (keyTimes.length >= 3 && (listening || track.currentTime > 1.5));
-    if (armed) flicker = { flips: 0, lastFlip: 0 };
-  }
+  if (!pianoDone && !flicker && PIANO_AT != null && !listening && track.currentTime >= PIANO_AT) flicker = { flips: 0, lastFlip: 0 };
   if (flicker) {
     if ((key && now - flicker.lastFlip > 90) || now - flicker.lastFlip > 220) { restamp(true); flicker.lastFlip = now; flicker.flips++; }
     if (flicker.flips >= PIANO_FLIPS) { flicker = null; pianoDone = true; beatCount = 0; lastAutoStamp = now; }
