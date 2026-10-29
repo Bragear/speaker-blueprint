@@ -129,6 +129,7 @@ body {
 }
 
 .hint {
+  white-space: nowrap;
   position: fixed; left: 50%; bottom: calc(var(--inset) + 14px); transform: translateX(-50%);
   margin: 0; font-size: 10px; letter-spacing: 0.3em; color: var(--ink-soft); z-index: 6;
   opacity: 0; transition: opacity 0.4s; pointer-events: none;
@@ -157,3 +158,35 @@ body {
 }
 
 .scroller { position: relative; width: 1px; height: 900vh; pointer-events: none; }
+
+/* parts list, fills in as the drawing comes apart */
+.bom {
+  position: fixed; right: calc(var(--inset) + 22px); top: calc(var(--inset) + 22px); z-index: 6;
+  width: 330px; font-size: 10px; letter-spacing: 0.1em;
+  border: 1px solid var(--ink-soft); background: rgba(7, 37, 86, 0.7);
+}
+.bom-head, .bom-row { display: grid; grid-template-columns: 28px 112px 1fr 30px; gap: 8px; padding: 6px 10px; align-items: center; }
+.bom-head { font-size: 8px; letter-spacing: 0.25em; color: var(--ink-soft); border-bottom: 1px solid var(--ink-soft); }
+.bom-row { border-bottom: 1px solid var(--ink-faint); cursor: pointer; min-height: 27px; }
+.bom-row:last-child { border-bottom: 0; }
+.bom-row > span { opacity: 0; transform: translateX(-6px); transition: opacity 0.35s, transform 0.35s; }
+.bom-row.show > span { opacity: 1; transform: none; }
+.bom-row span:nth-child(3) { color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bom-row span:last-child { text-align: right; }
+.bom-row.active { color: var(--pencil); }
+.bom-row.active span:nth-child(3) { color: var(--pencil); }
+@media (max-width: 900px) { .bom { display: none; } }
+
+/* dimension lines */
+#dims { transition: opacity 0.2s; }
+#dims line { stroke: var(--ink-soft); stroke-width: 1; }
+#dims text { fill: var(--ink); font: 500 10px var(--mono); letter-spacing: 0.15em; text-anchor: middle; dominant-baseline: middle; }
+
+/* load reveal */
+.opening > * { animation: rise 0.9s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.opening .eyebrow { animation-delay: 0.2s; }
+.opening .name { animation-delay: 0.35s; }
+.opening .cue { animation-delay: 1s; }
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } }
+.titleblock, .bom { animation: fade 0.8s ease 0.3s both; }
+@keyframes fade { from { opacity: 0; } }

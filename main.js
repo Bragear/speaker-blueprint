@@ -10,7 +10,7 @@ const PARTS = [
   { name: 'port',      no: 5, label: 'BASS PORT',     dir: [0, 0.08, -0.22],    material: 'ABS tube',          dim: 'Ø 40 × 120',      fact: 'A tube tuned to one note. The air in it resonates and adds low bass the woofer cannot make alone.' },
   { name: 'crossover', no: 6, label: 'CROSSOVER',     dir: [-0.2, -0.06, 0], material: 'PCB, coils, caps', dim: '90 × 60',         fact: 'A small circuit board that splits the signal: lows to the woofer, highs to the tweeter.' },
   { name: 'terminal',  no: 7, label: 'TERMINAL CUP',  dir: [0, -0.04, -0.3], material: 'ABS, brass',       dim: '60 × 90',         fact: 'Where the speaker cable connects. Red and black, so you get the two speakers in step.' },
-  { name: 'cabinet',   no: 8, label: 'CABINET',       dir: [0, 0, 0],       material: 'MDF, 18 mm',        dim: '180 × 300 × 240', fact: 'A sealed box of MDF. Its volume sets how deep the bass goes.' },
+  { name: 'cabinet',   no: 8, label: 'CABINET',       dir: [0, 0, 0], labelDir: [0, -1],       material: 'MDF, 18 mm',        dim: '180 × 300 × 240', fact: 'A sealed box of MDF. Its volume sets how deep the bass goes.' },
 ];
 const STEP = 1 / PARTS.length;
 
@@ -81,11 +81,12 @@ loader.load('model/speaker.glb', (gltf) => {
     p.r = m.geometry.boundingSphere.radius;
   });
   modelRoot = root;
+  fitSnap = true;
   buildLabels();
 });
 
 // keep whatever is exploded centred and in frame
-let modelRoot = null, fitD = 1;
+let modelRoot = null, fitD = 1, fitSnap = false, fitSnapCount = 0;
 const bb = new THREE.Box3(), bc = new THREE.Vector3(), fitTarget = new THREE.Vector3();
 function fitCamera(dt) {
   if (modelRoot && parts.length) {
@@ -95,7 +96,7 @@ function fitCamera(dt) {
     bb.getCenter(bc);
     rig.worldToLocal(bc);
     fitTarget.copy(modelRoot.position).sub(bc);
-    modelRoot.position.lerp(fitTarget, Math.min(1, dt * 5));
+    modelRoot.position.lerp(fitTarget, fitSnap ? 1 : Math.min(1, dt * 5));
     // how much of the viewport the parts take up at the current distance
     const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
     let extent = 0;
@@ -105,8 +106,10 @@ function fitCamera(dt) {
       v.project(camera);
       extent = Math.max(extent, Math.abs(v.x) + rx, Math.abs(v.y) + ry);
     });
-    const want = THREE.MathUtils.lerp(0.42, 0.78, THREE.MathUtils.smoothstep(eased, 0, 0.15));
-    fitD += (fitD * (extent / want) - fitD) * Math.min(1, dt * 4);
+    const full = window.innerWidth < window.innerHeight ? 0.94 : window.innerWidth >= 900 ? 0.72 : 0.8;
+    const want = THREE.MathUtils.lerp(0.42, full, THREE.MathUtils.smoothstep(eased, 0, 0.15));
+    fitD += (fitD * (extent / want) - fitD) * (fitSnap ? 1 : Math.min(1, dt * 4));
+    if (fitSnap) { fitSnapCount++; if (fitSnapCount > 6) fitSnap = false; } // a few exact iterations, then ease
   }
   camera.position.set(0, fitD * 0.22, fitD);
   camera.lookAt(0, 0, 0);
@@ -147,6 +150,7 @@ canvas.addEventListener('pointercancel', endDrag);
 
 // ---- labels + leader lines
 const labelsEl = document.getElementById('labels');
+const bom = document.getElementById('bom');
 const leaders = document.getElementById('leaders');
 const NS = 'http://www.w3.org/2000/svg';
 function buildLabels() {
@@ -156,6 +160,12 @@ function buildLabels() {
     el.innerHTML = `<span class="no">${p.cfg.no}</span><span class="nm">${p.cfg.label}</span>`;
     el.addEventListener('click', () => select(p));
     labelsEl.appendChild(el);
+    const row = document.createElement('div');
+    row.className = 'bom-row';
+    row.innerHTML = `<span>${p.cfg.no}</span><span>${p.cfg.label}</span><span>${p.cfg.material}</span><span>1</span>`;
+    row.addEventListener('click', () => select(p));
+    bom.appendChild(row);
+    p.row = row;
     const g = document.createElementNS(NS, 'g');
     const line = document.createElementNS(NS, 'line');
     const dot = document.createElementNS(NS, 'circle'); dot.setAttribute('r', '2.5');
@@ -166,12 +176,16 @@ function buildLabels() {
 const v = new THREE.Vector3();
 function placeLabels() {
   const w = window.innerWidth, h = window.innerHeight, mobile = w < 640;
-  const cx = w / 2, cy = h / 2, L = mobile ? 64 : 136;
+  const L = mobile ? 64 : 136;
+  v.set(0, 0, 0).project(camera); // the drawing's centre on screen (the model is centred on the origin)
+  const bomBox = w >= 900 ? bom.getBoundingClientRect() : null;
+  const cx = (v.x * 0.5 + 0.5) * w, cy = (-v.y * 0.5 + 0.5) * h;
   let shown = 0;
   parts.forEach((p, i) => {
     if (!p.el) return;
     const visible = partT(i, eased) > 0.55 || (i === parts.length - 1 && eased > 0.9);
     p.el.classList.toggle('show', visible);
+    p.row.classList.toggle('show', visible);
     p.g.style.opacity = visible ? 1 : 0;
     if (!visible) return;
     shown++;
@@ -180,12 +194,14 @@ function placeLabels() {
     // push each label outward from the middle of the drawing, like a parts diagram
     let ux = x - cx, uy = y - cy;
     const len = Math.hypot(ux, uy);
-    if (len < 24) { ux = 0; uy = -1; } else { ux /= len; uy /= len; }
+    if (p.cfg.labelDir) { [ux, uy] = p.cfg.labelDir; } else if (len < 24) { ux = 0; uy = -1; } else { ux /= len; uy /= len; }
     // keep labels inside the sheet and off the title block
-    const pad = mobile ? 40 : 90, tbTop = h - (mobile ? 96 : 118), tbLeft = w - (mobile ? w : 350);
-    let lx = THREE.MathUtils.clamp(x + ux * L, pad, w - pad);
+    const tbTop = h - (mobile ? 96 : 118), tbLeft = w - (mobile ? w : 350);
+    const padL = !mobile && ux < 0 ? 180 : 40, padR = !mobile && ux >= 0 ? 180 : 40;
+    let lx = THREE.MathUtils.clamp(x + ux * L, padL, w - padR);
     let ly = THREE.MathUtils.clamp(y + uy * L, 48, h - 40);
     if (ly > tbTop && lx > tbLeft) ly = tbTop;
+    if (bomBox && lx + (ux >= 0 ? 170 : 0) > bomBox.left - 10 && ly < bomBox.bottom + 16) ly = bomBox.bottom + 16;
     p.el.classList.toggle('flip', ux < 0);
     p.el.style.left = lx + 'px'; p.el.style.top = ly + 'px';
     p.line.setAttribute('x1', x); p.line.setAttribute('y1', y);
@@ -195,23 +211,87 @@ function placeLabels() {
   tbParts.textContent = `${shown} / ${parts.length}`;
 }
 
+// ---- dimension lines on the cabinet (height, width, depth)
+const dims = document.createElementNS(NS, 'g'); dims.id = 'dims'; leaders.appendChild(dims);
+const DIMS = [
+  { a: ['max', 'min', 'max'], b: ['max', 'max', 'max'], text: '300' },
+  { a: ['min', 'min', 'max'], b: ['max', 'min', 'max'], text: '180' },
+  { a: ['max', 'min', 'max'], b: ['max', 'min', 'min'], text: '240' },
+];
+const dimEls = DIMS.map((d) => {
+  const g = document.createElementNS(NS, 'g');
+  const mk = (t) => { const e = document.createElementNS(NS, t); g.appendChild(e); return e; };
+  const o = { g, e1: mk('line'), e2: mk('line'), l: mk('line'), t1: mk('line'), t2: mk('line'), txt: mk('text') };
+  o.txt.textContent = d.text;
+  dims.appendChild(g);
+  return o;
+});
+const pa = new THREE.Vector3(), pb = new THREE.Vector3(), pc = new THREE.Vector3();
+function placeDims() {
+  const c = parts.find((p) => p.cfg.name === 'cabinet');
+  if (!c) return;
+  const vis = THREE.MathUtils.smoothstep(eased, 0.015, 0.06) * (1 - THREE.MathUtils.smoothstep(eased, 0.3, 0.42));
+  dims.style.opacity = vis;
+  if (vis <= 0) return;
+  const mesh = c.obj.isMesh ? c.obj : c.obj.children.find((m) => m.isMesh);
+  if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+  const bbox = mesh.geometry.boundingBox;
+  mesh.updateWorldMatrix(true, false);
+  const w = window.innerWidth, h = window.innerHeight, mobile = w < 640;
+  c.obj.getWorldPosition(pc); pc.project(camera);
+  const cx = (pc.x * 0.5 + 0.5) * w, cy = (-pc.y * 0.5 + 0.5) * h;
+  const off = mobile ? 22 : 34;
+  DIMS.forEach((d, i) => {
+    pa.set(bbox[d.a[0]].x, bbox[d.a[1]].y, bbox[d.a[2]].z).applyMatrix4(mesh.matrixWorld).project(camera);
+    pb.set(bbox[d.b[0]].x, bbox[d.b[1]].y, bbox[d.b[2]].z).applyMatrix4(mesh.matrixWorld).project(camera);
+    const ax = (pa.x * 0.5 + 0.5) * w, ay = (-pa.y * 0.5 + 0.5) * h, bx = (pb.x * 0.5 + 0.5) * w, by = (-pb.y * 0.5 + 0.5) * h;
+    let dx = bx - ax, dy = by - ay; const len = Math.hypot(dx, dy) || 1; dx /= len; dy /= len;
+    let nx = -dy, ny = dx;
+    const mx = (ax + bx) / 2, my = (ay + by) / 2;
+    if ((mx - cx) * nx + (my - cy) * ny < 0) { nx = -nx; ny = -ny; }
+    const e = dimEls[i], set = (el, x1, y1, x2, y2) => { el.setAttribute('x1', x1); el.setAttribute('y1', y1); el.setAttribute('x2', x2); el.setAttribute('y2', y2); };
+    set(e.e1, ax + nx * 6, ay + ny * 6, ax + nx * (off + 8), ay + ny * (off + 8));
+    set(e.e2, bx + nx * 6, by + ny * 6, bx + nx * (off + 8), by + ny * (off + 8));
+    const lax = ax + nx * off, lay = ay + ny * off, lbx = bx + nx * off, lby = by + ny * off;
+    set(e.l, lax, lay, lbx, lby);
+    const sx = (dx + nx) * 0.7071 * 5, sy = (dy + ny) * 0.7071 * 5; // architectural tick: 45° slash
+    set(e.t1, lax - sx, lay - sy, lax + sx, lay + sy);
+    set(e.t2, lbx - sx, lby - sy, lbx + sx, lby + sy);
+    let ang = Math.atan2(dy, dx) * 180 / Math.PI; if (ang > 90 || ang < -90) ang += 180;
+    const tx = mx + nx * (off + 13), ty = my + ny * (off + 13);
+    e.txt.setAttribute('x', tx); e.txt.setAttribute('y', ty);
+    e.txt.setAttribute('transform', `rotate(${ang} ${tx} ${ty})`);
+  });
+}
+
 // ---- pick + detail
 const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
 const detail = document.getElementById('detail');
 let selected = null;
-function pick(e) {
+const edgeMatHover = new THREE.LineBasicMaterial({ color: '#ffffff', transparent: true, opacity: 1 });
+let hovered = null;
+function hitPart(e) {
   ndc.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
   ray.setFromCamera(ndc, camera);
   const meshes = parts.map((p) => p.obj.isMesh ? p.obj : p.obj.children.find((c) => c.isMesh)).filter(Boolean);
   const hit = ray.intersectObjects(meshes, false)[0];
-  if (!hit) { select(null); return; }
-  select(parts.find((p) => p.obj === hit.object || p.obj === hit.object.parent));
+  return hit ? parts.find((p) => p.obj === hit.object || p.obj === hit.object.parent) : null;
 }
+function applyMats() {
+  parts.forEach((q) => { q.edges.material = q === selected ? edgeMatActive : q === hovered ? edgeMatHover : edgeMat; });
+}
+function pick(e) { select(hitPart(e)); }
+canvas.addEventListener('pointermove', (e) => {
+  if (dragging || e.pointerType !== 'mouse') return;
+  const p = hitPart(e);
+  if (p !== hovered) { hovered = p; applyMats(); canvas.style.cursor = p ? 'pointer' : ''; }
+});
 function select(p) {
-  parts.forEach((q) => { q.edges.material = edgeMat; q.el?.classList.remove('active'); q.g?.classList.remove('active'); });
+  parts.forEach((q) => { q.el?.classList.remove('active'); q.g?.classList.remove('active'); q.row?.classList.remove('active'); });
   selected = p;
+  applyMats();
   if (!p) { detail.hidden = true; return; }
-  p.edges.material = edgeMatActive; p.el?.classList.add('active'); p.g?.classList.add('active');
+  p.el?.classList.add('active'); p.g?.classList.add('active'); p.row?.classList.add('active');
   document.getElementById('detail-no').textContent = p.cfg.no;
   document.getElementById('detail-name').textContent = p.cfg.label;
   document.getElementById('detail-material').textContent = p.cfg.material;
@@ -222,7 +302,7 @@ function select(p) {
 document.getElementById('detail-close').addEventListener('click', () => select(null));
 
 // ---- frame loop
-let last = performance.now();
+let last = performance.now(), shift = 0;
 function frame(now) {
   const dt = Math.min((now - last) / 1000, 0.05); last = now;
   eased += (progress - eased) * Math.min(1, dt * 6);
@@ -235,10 +315,17 @@ function frame(now) {
     if (now - idleSince > 2500) rotY += dt * 0.12;
   }
   rig.rotation.set(rotX, rotY, 0);
+  const desktop = window.innerWidth >= 900;
+  const wantShift = desktop ? window.innerWidth * (selected ? 0.17 : 0.07) : 0;
+  shift += (wantShift - shift) * Math.min(1, dt * 6);
+  camera.setViewOffset(window.innerWidth, window.innerHeight, shift, 0, window.innerWidth, window.innerHeight);
   fitCamera(dt);
   placeLabels();
+  placeDims();
   opening.classList.toggle('gone', eased > 0.03);
-  hint.classList.toggle('show', eased > 0.03 && eased < 0.97 && !selected);
+  const small = window.innerWidth < 640;
+  hint.textContent = eased > 0.97 ? (small ? 'SCROLL UP TO REASSEMBLE' : 'END OF SHEET · SCROLL UP TO REASSEMBLE') : (small ? 'DRAG TO SPIN · TAP A PART' : 'DRAG TO ROTATE · TAP A PART');
+  hint.classList.toggle('show', eased > 0.03 && !selected);
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }
