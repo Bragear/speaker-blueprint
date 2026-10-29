@@ -520,7 +520,7 @@ const player = document.getElementById('player'), playBtn = document.getElementB
 const track = document.getElementById('track');
 const listening = resolvePreset('listening', 64).opts; // the library's tuned "listening" profile, densified for a bigger orb
 const orbOpts = { ...listening, rings: 14, lonDensity: 36, rBase: (listening.rBase ?? 0.6) * 1.6, rDepth: (listening.rDepth ?? 1.7) * 1.6 };
-const music = { bass: 0, mids: 0, highs: 0, vol: 0, beat: 0, spin: 0 };
+const music = { bass: 0, mids: 0, highs: 0, vol: 0, beat: 0, spin: 0, scan: 0 };
 const lo = { bass: 0, mids: 0, highs: 0, vol: 0 }, hi = { bass: 60, mids: 40, highs: 25, vol: 40 }; // each band's running range, so any track normalises itself
 let actx = null, analyser = null, freq = null, playing = false, bassAvg = 0, bassDev = 8, bassPrev = 0, lastBeat = 0;
 const BEATS_PER_STYLE = 8, STYLE_FALLBACK_MS = 10000; // while playing, stamp the next style every 8 beats (or every 10 s if no beats are heard)
@@ -613,17 +613,26 @@ function analyse(now, dt) {
   ease('vol', range('vol', vol, 20), dt, 8, 3);
 }
 
-// -- geometry, in the engine's own contract: (size, t, opts) -> frame of dots
-function orbFrame(size, t, o, m) {
+// -- geometry, in the engine's own contract: (size, t, opts) -> frame of dots, shaped per style
+const TAU = Math.PI * 2;
+const angleDelta = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
+function orbFrame(size, t, o, m, style) {
+  const blue = style === 'A', studio = style === 'B', zine = style === 'C', arcade = style === 'D';
+  if (arcade) t = Math.floor(t * 8) / 8;                                    // arcade: a sprite, eight frames a second
   const cx = size / 2, cy = size / 2;
-  const breathe = 1 + 0.03 * Math.sin(t * 0.7);                         // idle: slow breathing
-  const R = size / 2 * 0.74 * breathe * (1 + 0.10 * m.bass + 0.07 * m.beat); // bass: scale, with a pulse on the beat
-  const pt = makeProj(t * 0.18 + m.spin, 0.38 + 0.06 * Math.sin(t * 0.3), cx, cy, 1);
+  const breathe = 1 + 0.03 * Math.sin(t * 0.7);                             // idle: slow breathing
+  let scale = 1 + 0.10 * m.bass + 0.07 * m.beat;                            // bass: scale, with a pulse on the beat
+  if (arcade) scale = Math.round(scale * 10) / 10;                          // arcade: grows in steps
+  const bounce = studio ? m.beat * size * 0.045 : 0;                        // studio: the ball hops on the kick
+  const R = size / 2 * (zine ? 0.6 : studio ? 0.68 : 0.74) * breathe * scale;
+  let yaw = t * 0.18 + m.spin;
+  if (arcade) yaw = Math.round(yaw * 12) / 12;
+  const pt = makeProj(yaw, 0.38 + 0.06 * Math.sin(t * 0.3), cx, cy - bounce, 1);
   const rs = radiusScale(size, o.rsPow ?? 0.6);
-  const rings = o.rings ?? 15, lonDensity = o.lonDensity ?? 40;
-  const wobble = 0.04 + 0.14 * m.mids, boil = 0.12 * m.mids;           // mids: the rolling wave and the surface boil
-  const bright = 0.55 + 0.45 * m.vol;                                   // volume: brightness
-  const sparkGate = 1 - 0.12 * m.highs, tick = Math.floor(t * 14);      // highs: a share of dots sparkle
+  const rings = arcade ? 9 : o.rings ?? 15, lonDensity = arcade ? 22 : o.lonDensity ?? 40; // arcade: fewer dots, so the pixels stay apart
+  const wobble = (0.04 + 0.14 * m.mids) * (zine ? 1.6 : 1), boil = 0.12 * m.mids * (zine ? 1.5 : 1); // mids: the rolling wave and the surface boil
+  const bright = 0.55 + 0.45 * m.vol;                                       // volume: brightness
+  const sparkGate = 1 - 0.12 * m.highs, tick = Math.floor(t * 14);          // highs: a share of dots sparkle
   const dots = [];
   for (let ri = 0; ri <= rings; ri++) {
     const lat = -Math.PI / 2 + ri / rings * Math.PI, cosLat = Math.cos(lat), sinLat = Math.sin(lat);
@@ -631,21 +640,84 @@ function orbFrame(size, t, o, m) {
     const crest = Math.max(0, w);
     const lonCount = Math.max(1, Math.round(Math.abs(cosLat) * lonDensity));
     for (let lj = 0; lj < lonCount; lj++) {
-      const lon = lj / lonCount * 2 * Math.PI;
+      const lon = lj / lonCount * TAU;
       const n = (vnoise(lon * 1.2 + t * 0.5, ri * 0.8 + t * 0.35) - 0.5) * 2;
       const rr = R * (0.9 + wobble * w) * (1 + boil * n);
       const [px, py, z] = pt(cosLat * Math.cos(lon) * rr, sinLat * rr, cosLat * Math.sin(lon) * rr);
       const depth = (z / R + 1) / 2;
       const spark = m.highs > 0.02 && hashD(ri * 7.1 + lj, tick) > sparkGate ? 1 : 0;
-      dots.push({
-        x: px, y: py, z,
-        r: ((o.rBase ?? 0.6) + (o.rDepth ?? 1.7) * depth) * (1 + 0.4 * crest + 0.9 * spark * m.highs) * rs,
-        white: Math.max(0, 0.66 - 0.56 * depth - 0.1 * crest - 0.25 * spark - 0.12 * m.vol),
-        a: Math.min(1, bright * (0.45 + 0.55 * depth) + 0.4 * spark),
-      });
+      let r = ((o.rBase ?? 0.6) + (o.rDepth ?? 1.7) * depth) * (1 + 0.4 * crest + 0.9 * spark * m.highs) * rs;
+      let white = 0.66 - 0.56 * depth - 0.1 * crest - 0.25 * spark - 0.12 * m.vol;
+      let a = zine ? 0.6 + 0.4 * depth + spark : bright * (0.45 + 0.55 * depth) + 0.4 * spark; // zine prints at full strength
+      if (blue) { // a scan meridian sweeps the front of the globe, as in the library's searching state
+        const boost = Math.exp(-(angleDelta(lon + yaw, m.scan) ** 2) / 0.18) * Math.max(0, z / R);
+        r += 1.2 * boost * rs; white -= 0.3 * boost; a = a * 0.8 + 0.4 * Math.min(1, boost);
+      }
+      if (studio) { // lit from the upper left like the render: light side pale, shadow side dark and heavier dots
+        const nx = (px - cx) / R, ny = (py - (cy - bounce)) / R, nz = z / R;
+        const shade = Math.max(0, -0.45 * nx - 0.55 * ny + 0.7 * nz);
+        white = 0.1 + 0.78 * shade - 0.2 * spark; r *= (0.7 + 0.6 * depth) * (0.7 + 0.5 * (1 - shade)); a = 0.35 + 0.65 * depth + 0.3 * spark;
+      }
+      dots.push({ x: px, y: py, z, r, white: Math.max(0, white), a: Math.min(1, a), spark });
     }
   }
   return finalizeFrame(dots, [], o.rMin);
+}
+
+// -- painters, one per style
+function paintDots(ctx, dots, ink, paper, sparkColor) {
+  for (const d of dots) {
+    ctx.fillStyle = d.spark && sparkColor ? sparkColor : rgba(mixC(ink, paper, Math.min(1, d.white)), d.a ?? 1);
+    ctx.beginPath(); ctx.arc(d.x, d.y, d.r, 0, TAU); ctx.fill();
+  }
+}
+function halo(ctx, size, cx, cy, r, ink, alpha) {
+  const g = ctx.createRadialGradient(cx, cy, r * 0.15, cx, cy, r);
+  g.addColorStop(0, rgba(ink, alpha)); g.addColorStop(1, rgba(ink, 0));
+  ctx.fillStyle = g; ctx.fillRect(0, 0, size, size);
+}
+function paintBlueprint(ctx, size, frame, m) { // a drafting instrument: dashed envelope, four ticks, centre mark, a faint glow
+  const cx = size / 2, cy = size / 2, Re = size / 2 * 0.74 * (1 + 0.10 * m.bass + 0.07 * m.beat) * 1.17;
+  halo(ctx, size, cx, cy, size * 0.5, orbInk, 0.03 + 0.22 * (0.5 * m.highs + 0.3 * m.vol + 0.2 * m.beat));
+  ctx.strokeStyle = rgba(orbInk, 0.5); ctx.lineWidth = 1; ctx.setLineDash([3, 4]);
+  ctx.beginPath(); ctx.arc(cx, cy, Re, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+  ctx.beginPath();
+  for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2; ctx.moveTo(cx + Math.cos(a) * (Re - 5), cy + Math.sin(a) * (Re - 5)); ctx.lineTo(cx + Math.cos(a) * (Re + 5), cy + Math.sin(a) * (Re + 5)); }
+  ctx.moveTo(cx - 4, cy); ctx.lineTo(cx + 4, cy); ctx.moveTo(cx, cy - 4); ctx.lineTo(cx, cy + 4);
+  ctx.stroke();
+  paintDots(ctx, frame.dots, orbInk, orbPaper);
+}
+function paintStudio(ctx, size, frame, m) { // a shaded ball on a contact shadow; the hop lifts it off the ground
+  const cx = size / 2, R = size / 2 * 0.68 * (1 + 0.10 * m.bass + 0.07 * m.beat);
+  const sy = size / 2 + R * 1.08, rx = R * (0.95 - 0.3 * m.beat), ry = R * 0.15;
+  ctx.save(); ctx.translate(cx, sy); ctx.scale(1, ry / rx);
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, rx);
+  g.addColorStop(0, rgba(orbInk, 0.3 - 0.12 * m.beat)); g.addColorStop(0.55, rgba(orbInk, 0.12)); g.addColorStop(1, rgba(orbInk, 0));
+  ctx.fillStyle = g; ctx.fillRect(-rx, -rx, rx * 2, rx * 2); ctx.restore();
+  paintDots(ctx, frame.dots, orbInk, orbPaper);
+}
+const ZINK = [17, 17, 17], ZWHITE = [255, 255, 255], ZPINK = [255, 46, 136];
+function paintZine(ctx, size, frame, m) { // a die-cut sticker, printed in two passes that do not quite line up
+  const cx = size / 2, cy = size / 2, Rs = size / 2 * 0.6 * (1 + 0.10 * m.bass + 0.07 * m.beat) * 1.25;
+  ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(cx + 5, cy + 6, Rs, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(cx, cy, Rs, 0, TAU); ctx.fill();
+  ctx.lineWidth = 2; ctx.strokeStyle = '#111'; ctx.stroke();
+  const off = 2 + 3 * m.beat + 2 * m.mids;
+  ctx.save(); ctx.translate(off, off * 0.7);
+  for (const d of frame.dots) { ctx.fillStyle = rgba(ZPINK, (d.a ?? 1) * 0.9); ctx.beginPath(); ctx.arc(d.x, d.y, d.r, 0, TAU); ctx.fill(); }
+  ctx.restore();
+  paintDots(ctx, frame.dots, ZINK, ZWHITE, '#ff2e88');
+}
+const GB = ['#0f380f', '#306230', '#8bac0f'];
+function paintArcade(ctx, size, frame) { // a sprite: square pixels on a 4px grid in the three inks that are not the paper
+  const cell = 4;
+  for (const d of frame.dots) {
+    const w = Math.min(1, d.white);
+    if (w > 0.72 && !d.spark) continue;
+    ctx.fillStyle = d.spark ? GB[0] : GB[w < 0.3 ? 0 : w < 0.55 ? 1 : 2];
+    const s = d.spark ? cell * 2 : cell;
+    ctx.fillRect(Math.floor(d.x / cell) * cell, Math.floor(d.y / cell) * cell, s, s);
+  }
 }
 function autoStamp(now) { beatCount = 0; lastAutoStamp = now; restamp(); }
 function drawOrb(now, dt) {
@@ -658,18 +730,15 @@ function drawOrb(now, dt) {
   if (playing && analyser) analyse(now, dt);
   else for (const k of ['bass', 'mids', 'highs', 'vol']) ease(k, 0, dt, 20, 1.5); // paused: settle back to idle
   music.beat *= Math.exp(-dt * 5);
-  music.spin += dt * (0.9 * music.vol + 0.6 * music.bass);                      // louder = turns faster
-  const frame = orbFrame(size, now / 1000, orbOpts, music);
+  music.spin += dt * (0.9 * music.vol + 0.6 * music.bass);                       // louder = turns faster
+  music.scan += dt * (0.9 + 2.5 * music.highs);                                   // the blueprint's scan meridian
+  const frame = orbFrame(size, now / 1000, orbOpts, music, current);
   orbCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
   orbCtx.clearRect(0, 0, size, size);
-  const glow = 0.04 + 0.3 * (0.5 * music.highs + 0.3 * music.vol + 0.2 * music.beat);  // a soft halo behind the dots
-  const halo = orbCtx.createRadialGradient(size / 2, size / 2, size * 0.08, size / 2, size / 2, size * 0.5);
-  halo.addColorStop(0, rgba(orbInk, glow)); halo.addColorStop(1, rgba(orbInk, 0));
-  orbCtx.fillStyle = halo; orbCtx.fillRect(0, 0, size, size);
-  for (const d of frame.dots) {
-    orbCtx.fillStyle = rgba(mixC(orbInk, orbPaper, Math.min(1, d.white)), d.a ?? 1);
-    orbCtx.beginPath(); orbCtx.arc(d.x, d.y, d.r, 0, Math.PI * 2); orbCtx.fill();
-  }
+  if (current === 'B') paintStudio(orbCtx, size, frame, music);
+  else if (current === 'C') paintZine(orbCtx, size, frame, music);
+  else if (current === 'D') paintArcade(orbCtx, size, frame);
+  else paintBlueprint(orbCtx, size, frame, music);
 }
 orbTheme();
 
