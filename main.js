@@ -181,7 +181,11 @@ function placeLabels() {
     let ux = x - cx, uy = y - cy;
     const len = Math.hypot(ux, uy);
     if (len < 24) { ux = 0; uy = -1; } else { ux /= len; uy /= len; }
-    const lx = x + ux * L, ly = y + uy * L;
+    // keep labels inside the sheet and off the title block
+    const pad = mobile ? 40 : 90, tbTop = h - (mobile ? 96 : 118), tbLeft = w - (mobile ? w : 350);
+    let lx = THREE.MathUtils.clamp(x + ux * L, pad, w - pad);
+    let ly = THREE.MathUtils.clamp(y + uy * L, 48, h - 40);
+    if (ly > tbTop && lx > tbLeft) ly = tbTop;
     p.el.classList.toggle('flip', ux < 0);
     p.el.style.left = lx + 'px'; p.el.style.top = ly + 'px';
     p.line.setAttribute('x1', x); p.line.setAttribute('y1', y);
